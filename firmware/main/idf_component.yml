@@ -2,3 +2,4 @@ dependencies:
   idf: ">=5.4"
   espressif/esp_lcd_co5300: "^2.2"
   waveshare/esp_lcd_touch_cst9217: "^2.0"
+  espressif/esp_lcd_touch: "^1.2"   # esp_lcd_touch_get_data (1.2+); the CST9217 driver alone would accept 1.1
