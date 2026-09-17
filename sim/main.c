@@ -1172,6 +1172,7 @@ static void frame_cb(lv_timer_t *timer) {
     }
     if (setup_active()) render_setup(&tank, canvas_buf, TANK_W, tank.clock);
     if (confirm_view) render_confirm_reset(canvas_buf, TANK_W, 1.0f - (SDL_GetTicks() - confirm_ms) / (float)CONFIRM_MS);
+    render_mask_corners(canvas_buf, TANK_W);        /* the glass's cut corners, as on the device */
     lv_obj_invalidate(canvas);
 }
 
@@ -1269,6 +1270,7 @@ static int selftest_llm(int minutes) {
  * progression) and write <prefix>_tank.ppm, _card.ppm, _milestones.ppm -
  * a look at the renderer without a window (docs, review, CI). */
 static void write_ppm(const char *path, const uint16_t *fb) {
+    render_mask_corners((uint16_t *)fb, TANK_W);    /* every snapshot as the glass shows it */
     FILE *f = fopen(path, "wb"); if (!f) return;
     fprintf(f, "P6\n%d %d\n255\n", TANK_W, TANK_H);
     for (int i = 0; i < TANK_W * TANK_H; i++) {

@@ -58,8 +58,8 @@ void render_stats_card(const tank_t *t, int fish_idx, uint16_t *fb, int stride);
 /* Optional card cache (RENDER_CARD_W x RENDER_CARD_H uint16): with the scene
  * cache live, the card is redrawn at most 4x/s and blitted otherwise (~7 ms
  * -> ~1 ms per frame on the device). NULL = draw every frame. */
-#define RENDER_CARD_X 20          /* the square panel's corner radius is small: an even 20 px in */
-#define RENDER_CARD_Y 20
+#define RENDER_CARD_X 28          /* clear of the cut corner: TANK_CORNER_R * (1 - 1/sqrt2) = 24 px */
+#define RENDER_CARD_Y 28
 #define RENDER_CARD_W 124
 #define RENDER_CARD_H 258       /* 228 + the MORE button strip (2026-09-16) */
 /* the card's tap hit box (touch ports): the card itself plus slop, most of
@@ -71,6 +71,12 @@ void render_stats_card(const tank_t *t, int fish_idx, uint16_t *fb, int stride);
 #define RENDER_CARD_HIT(x, y) ((x) >= RENDER_CARD_X - RENDER_CARD_HIT_SIDE && (x) < RENDER_CARD_X + RENDER_CARD_W + RENDER_CARD_HIT_SIDE && \
                                (y) >= RENDER_CARD_Y && (y) < RENDER_CARD_Y + RENDER_CARD_H + RENDER_CARD_HIT_BELOW)
 void render_set_card_cache(uint16_t *buf);
+
+/* Black out the panel's cut corners (TANK_CORNER_R), the last thing drawn
+ * in a frame - after the tank, the pages, the card and every overlay. On the
+ * glass those pixels are not there at all; in the sim it shows the frame the
+ * keeper really sees. */
+void render_mask_corners(uint16_t *fb, int stride);
 
 /* Device battery pill (top-right), drawn with the stats card on hardware:
  * frac 0..1, charging tints the fill teal. */

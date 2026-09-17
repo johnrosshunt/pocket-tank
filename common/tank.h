@@ -24,6 +24,20 @@
 
 #define TANK_W 480
 #define TANK_H 480
+/* The AMOLED-2.16's glass is a rounded square: the panel lights all 480x480,
+ * but the corners are cut and anything drawn there is lost (Waveshare's own
+ * demos show it). The renderer blacks the cut out (render_mask_corners) so
+ * the sim shows what the glass shows, and every page keeps its buttons, text
+ * and art inside the same rounded rect. No datasheet gives the active area's
+ * corner radius - the 2D drawing dimensions only the case (4*R4.70 on a
+ * 43.30 mm module, 38.99 mm of it lit) - so this came off the bench: at 48
+ * the stats card, 20 px in, still lost its top-left corner by a few px
+ * (2026-09-17), which puts the cut near 78; 80 covers it with a pixel or
+ * two to spare. Every page clears it. The 1.8's square panel, on main, has
+ * no such cut. */
+#ifndef TANK_CORNER_R                  /* -DTANK_CORNER_R=<px> to try another cut */
+#define TANK_CORNER_R 80
+#endif
 
 #define N_FISH_MAX 6            /* array bound; the live count is tank_t.n_fish */
 #define N_FISH_START 2          /* a new tank: two contrasting adults */

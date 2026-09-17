@@ -1143,13 +1143,35 @@ void render_tank(const tank_t *t, uint16_t *fb, int stride) {
 #undef DYN_RECT
 }
 
+/* the panel's cut corners: every pixel outside the rounded rect goes black.
+ * ~5500 pixels a frame at TANK_CORNER_R 80, done last (render.h). */
+void render_mask_corners(uint16_t *fb, int stride) {
+    const int R = TANK_CORNER_R;
+    if (R <= 0) return;
+    for (int y = 0; y < R; y++) {
+        float dy = R - y - 0.5f;
+        float in = sqrtf((float)R * R - dy * dy);          /* the arc's x on this row */
+        int cut = (int)(R - in + 0.5f);                    /* pixels to black at each end */
+        if (cut <= 0) continue;
+        uint16_t *top = fb + y * stride, *bot = fb + (TANK_H - 1 - y) * stride;
+        for (int x = 0; x < cut; x++) {
+            top[x] = 0; top[TANK_W - 1 - x] = 0;
+            bot[x] = 0; bot[TANK_W - 1 - x] = 0;
+        }
+    }
+}
+
 /* device battery pill, top-right: outline + nub, fill fraction colored by
  * level (charging = teal). Same visual language as the stats card - no text. */
+#define BATT_W 26
+#define BATT_H 11
+#define BATT_X (TANK_W - BATT_W - 40)   /* clear of the cut corner (TANK_CORNER_R), nub included */
+#define BATT_Y 16
 void render_battery(uint16_t *fb, int stride, float frac, bool charging) {
     ctx_t c = ctx_full(fb, stride, 1.0f);
     if (frac < 0) frac = 0;
     if (frac > 1) frac = 1;
-    const int W = 26, H = 11, X = TANK_W - W - 28, Y = 9;   /* clear of the curved bezel */
+    const int W = BATT_W, H = BATT_H, X = BATT_X, Y = BATT_Y;
     uint32_t col = charging ? 0x38dcc7 : frac < 0.2f ? 0xf25b65
                  : frac < 0.45f ? 0xffbd59 : 0x78d67d;
     for (int y = Y; y < Y + H; y++)
@@ -2243,7 +2265,7 @@ void render_settings(const tank_t *t, uint16_t *fb, int stride, int bright_pct, 
        it", "make it 8px tall", "hug the bottom of the frame" (2026-09-16).
        The installer page shows the version it would write in the same words. */
     char ver[40]; snprintf(ver, sizeof ver, "FW %s", version_port_string());
-    draw_text_8px(&c, SET_LABEL_X, TANK_H - 8 - 6, MSP_DIM, ver);
+    draw_text_8px(&c, SET_LABEL_X, TANK_H - 30, MSP_DIM, ver);      /* up off the cut corner (TANK_CORNER_R) */
     button(&c, MSP_CLOSE_X, MSP_CLOSE_Y, MSP_CLOSE_W, MSP_CLOSE_H, 0x1c2f36, MSP_TEAL, "CLOSE", 2);
 }
 static int set_segment(float x, int n) {
@@ -2309,3 +2331,19 @@ int render_settings_touch(tank_t *t, float x, float y, bool down, int *value) {
     s_down = down;
     return r;
 }
+
+/* ---- the glass's cut corners (TANK_CORNER_R) ----
+ * The mask blacks them every frame; these say, at compile time, that nothing
+ * which must be READ or TAPPED sits under one. A layout moved into a corner
+ * fails the build instead of losing its corner on the bench. */
+#define CORNER_DX(x) ((x) < TANK_CORNER_R ? TANK_CORNER_R - (x) : (x) > TANK_W - TANK_CORNER_R ? (x) - (TANK_W - TANK_CORNER_R) : 0)
+#define CORNER_DY(y) ((y) < TANK_CORNER_R ? TANK_CORNER_R - (y) : (y) > TANK_H - TANK_CORNER_R ? (y) - (TANK_H - TANK_CORNER_R) : 0)
+#define CORNER_CLEAR(x, y) (CORNER_DX(x) * CORNER_DX(x) + CORNER_DY(y) * CORNER_DY(y) <= TANK_CORNER_R * TANK_CORNER_R)
+_Static_assert(CORNER_CLEAR(RENDER_CARD_X, RENDER_CARD_Y), "the stats card's top-left corner is cut");
+_Static_assert(CORNER_CLEAR(BATT_X + BATT_W + 3, BATT_Y), "the battery pill (nub included) is cut");
+_Static_assert(CORNER_CLEAR(MSP_SET_X, MSP_CLOSE_Y + MSP_CLOSE_H), "the SETTINGS button is cut");
+_Static_assert(CORNER_CLEAR(MSP_CLOSE_X + MSP_CLOSE_W, MSP_CLOSE_Y + MSP_CLOSE_H), "the CLOSE button is cut");
+_Static_assert(CORNER_CLEAR(SHP_COIN_X, SHP_COIN_Y), "the shop's coin is cut");
+_Static_assert(CORNER_CLEAR(SHP_EARN_X, MSP_CLOSE_Y + MSP_CLOSE_H), "the HOW TO EARN button is cut");
+_Static_assert(CORNER_CLEAR(SET_LABEL_X, TANK_H - 30 + 8), "the settings page's firmware line is cut");
+_Static_assert(CORNER_CLEAR(MSP_TITLE_Y >= 0 ? TANK_W / 2 : 0, MSP_TITLE_Y), "the MILESTONES title is cut");

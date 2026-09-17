@@ -456,6 +456,7 @@ static void tank_task(void *arg) {
                 render_setup(&tank, fb[cur], TANK_W, tank.clock);
             if (touch_port_confirm_up())         /* reset prompt: over everything, fish still swim */
                 render_confirm_reset(fb[cur], TANK_W, touch_port_confirm_frac());
+            render_mask_corners(fb[cur], TANK_W);   /* the glass's cut corners, last of all */
             int64_t t1 = esp_timer_get_time();
             if (sel >= 0) { card_us += t1 - tc; card_frames++; }
             display_port_flush(fb[cur]);
