@@ -1,5 +1,5 @@
-/* main.c — PC simulator entry: LVGL v9 + SDL window, 448x368 to match the
- * ESP32 AMOLED (landscape). This is the only platform-specific file; tank.c,
+/* main.c — PC simulator entry: LVGL v9 + SDL window, 480x480 to match the
+ * ESP32 AMOLED-2.16 (square). This is the only platform-specific file; tank.c,
  * advisor.c and render.c compile unchanged for firmware.
  *
  *   ./fishsim              run the tank (keys: F feed at the mouse x,
@@ -223,57 +223,57 @@ static int selftest_pop(void) {
             printf("FAIL: checklist lists %d gates at %d fish\n", n, tank.n_fish); return 1; }
         if (n > 0) {   /* and the page draws it: the row, the name's tally, the first gate's modal */
             static uint16_t fb[TANK_W * TANK_H];
-            int top = 4 + tank.n_fish * 40;
+            int top = 56 + tank.n_fish * 48;
             render_milestones(&tank, fb, TANK_W);
-            if (render_milestones_tap(&tank, 100, top + 10) != MS_TAP_KEPT) { printf("FAIL: the NEW FRY name did not open its modal\n"); return 1; }
+            if (render_milestones_tap(&tank, 100, top + 14) != MS_TAP_KEPT) { printf("FAIL: the NEW FRY name did not open its modal\n"); return 1; }
             render_milestones(&tank, fb, TANK_W);
-            if (render_milestones_tap(&tank, 100, top + 10) != MS_TAP_KEPT) { printf("FAIL: a tap did not close the modal\n"); return 1; }
-            if (render_milestones_tap(&tank, 176 + 16, top + 20) != MS_TAP_KEPT) { printf("FAIL: the first gate did not open its modal\n"); return 1; }
+            if (render_milestones_tap(&tank, 100, top + 14) != MS_TAP_KEPT) { printf("FAIL: a tap did not close the modal\n"); return 1; }
+            if (render_milestones_tap(&tank, 196 + 16, top + 24) != MS_TAP_KEPT) { printf("FAIL: the first gate did not open its modal\n"); return 1; }
             render_milestones(&tank, fb, TANK_W);
             /* HOW? (bottom right of the gate's panel) flips to the tip page; the next tap closes it */
-            if (render_milestones_tap(&tank, 56 + 336 / 2, 60 + 156 + 20 + 24 + 32 + 14 - 10 - 16) != MS_TAP_KEPT) { printf("FAIL: HOW? did not open the tip\n"); return 1; }
+            if (render_milestones_tap(&tank, 64 + 352 / 2, 117 + 156 + 20 + 24 + 32 + 14 - 10 - 16) != MS_TAP_KEPT) { printf("FAIL: HOW? did not open the tip\n"); return 1; }
             render_milestones(&tank, fb, TANK_W);
             if (render_milestones_tap(&tank, 200, 150) != MS_TAP_KEPT) { printf("FAIL: a tap did not close the tip page\n"); return 1; }
             /* a low, wide press - 26 px under the button's foot, 30 px past its side - still opens it (the slop) */
-            if (render_milestones_tap(&tank, 176 + 16, top + 20) != MS_TAP_KEPT) { printf("FAIL: the gate did not reopen\n"); return 1; }
-            if (render_milestones_tap(&tank, 56 + 336 / 2 + 50 + 30, 60 + 246 - 10 + 26) != MS_TAP_KEPT) { printf("FAIL: a low wide press missed HOW?\n"); return 1; }
+            if (render_milestones_tap(&tank, 196 + 16, top + 24) != MS_TAP_KEPT) { printf("FAIL: the gate did not reopen\n"); return 1; }
+            if (render_milestones_tap(&tank, 64 + 352 / 2 + 50 + 30, 117 + 246 - 10 + 26) != MS_TAP_KEPT) { printf("FAIL: a low wide press missed HOW?\n"); return 1; }
             render_milestones(&tank, fb, TANK_W);
             if (render_milestones_tap(&tank, 200, 150) != MS_TAP_KEPT) { printf("FAIL: a tap did not close the tip page\n"); return 1; }
-            if (render_milestones_tap(&tank, 176 + 16, top + 20) != MS_TAP_KEPT) { printf("FAIL: the gate did not reopen\n"); return 1; }
+            if (render_milestones_tap(&tank, 196 + 16, top + 24) != MS_TAP_KEPT) { printf("FAIL: the gate did not reopen\n"); return 1; }
             if (render_milestones_tap(&tank, 200, 150) != MS_TAP_KEPT) { printf("FAIL: a tap off HOW? did not close the modal\n"); return 1; }
-            if (render_milestones_tap(&tank, 200, 232) != MS_TAP_NONE) { printf("FAIL: the modal is still up\n"); return 1; }   /* an empty row */
+            if (render_milestones_tap(&tank, 200, 56 + 5 * 48 + 14) != MS_TAP_NONE) { printf("FAIL: the modal is still up\n"); return 1; }   /* an empty row */
             render_milestones_leave();
-            if (render_milestones_tap(&tank, 176 + n * 40 + 16, top + 20) != MS_TAP_NONE) { printf("FAIL: an empty gate cell opened a modal\n"); return 1; }
+            if (render_milestones_tap(&tank, 196 + n * 44 + 16, top + 24) != MS_TAP_NONE) { printf("FAIL: an empty gate cell opened a modal\n"); return 1; }
             {   /* the modal's arrows (2026-09-16): a step shows something else, six steps come back round, the left
                    arrow from the first badge is the last; a fish's name steps through the fish; TANK's tally has none */
                 uint32_t h[8];
                 render_milestones_leave();
-                if (render_milestones_tap(&tank, 176 + 16, 4 + 20) != MS_TAP_KEPT) { printf("FAIL: fish 0's first badge did not open its modal\n"); return 1; }
+                if (render_milestones_tap(&tank, 196 + 16, 56 + 24) != MS_TAP_KEPT) { printf("FAIL: fish 0's first badge did not open its modal\n"); return 1; }
                 for (int i = 0; i < 7; i++) {
                     render_milestones(&tank, fb, TANK_W);
                     h[i] = 2166136261u; for (int q = 0; q < TANK_W * TANK_H; q++) h[i] = (h[i] ^ fb[q]) * 16777619u;
-                    if (render_milestones_tap(&tank, 56 + 336 - 30, 100 + 26) != MS_TAP_KEPT) { printf("FAIL: the right arrow dropped the modal\n"); return 1; }
+                    if (render_milestones_tap(&tank, 64 + 352 - 30, 162 + 26) != MS_TAP_KEPT) { printf("FAIL: the right arrow dropped the modal\n"); return 1; }
                 }
                 for (int i = 1; i < 6; i++) for (int j = 0; j < i; j++) if (h[i] == h[j]) { printf("FAIL: arrow step %d showed step %d's modal again\n", i, j); return 1; }
                 if (h[6] != h[0]) { printf("FAIL: six right steps did not come back round\n"); return 1; }
                 for (int i = 0; i < 2; i++) {      /* seven rights sit on badge 1: a left is badge 0, another wraps to the last */
-                    if (render_milestones_tap(&tank, 56 + 30, 100 + 26) != MS_TAP_KEPT) { printf("FAIL: the left arrow dropped the modal\n"); return 1; }
+                    if (render_milestones_tap(&tank, 64 + 30, 162 + 26) != MS_TAP_KEPT) { printf("FAIL: the left arrow dropped the modal\n"); return 1; }
                     render_milestones(&tank, fb, TANK_W);
                     uint32_t hl = 2166136261u; for (int q = 0; q < TANK_W * TANK_H; q++) hl = (hl ^ fb[q]) * 16777619u;
                     if (hl != h[i ? 5 : 0]) { printf("FAIL: the left arrow did not step back to badge %d\n", i ? 5 : 0); return 1; }
                 }
-                if (render_milestones_tap(&tank, 200, 232) != MS_TAP_KEPT) { printf("FAIL: a tap off the arrows did not close the modal\n"); return 1; }
-                if (render_milestones_tap(&tank, 100, 4 + 10) != MS_TAP_KEPT) { printf("FAIL: fish 0's name did not open its modal\n"); return 1; }
+                if (render_milestones_tap(&tank, 200, 56 + 5 * 48 + 14) != MS_TAP_KEPT) { printf("FAIL: a tap off the arrows did not close the modal\n"); return 1; }
+                if (render_milestones_tap(&tank, 100, 56 + 14) != MS_TAP_KEPT) { printf("FAIL: fish 0's name did not open its modal\n"); return 1; }
                 for (int i = 0; i <= tank.n_fish; i++) {
                     render_milestones(&tank, fb, TANK_W);
                     h[i] = 2166136261u; for (int q = 0; q < TANK_W * TANK_H; q++) h[i] = (h[i] ^ fb[q]) * 16777619u;
-                    if (render_milestones_tap(&tank, 56 + 336 - 30, 100 + 26) != MS_TAP_KEPT) { printf("FAIL: the right arrow dropped the name modal\n"); return 1; }
+                    if (render_milestones_tap(&tank, 64 + 352 - 30, 162 + 26) != MS_TAP_KEPT) { printf("FAIL: the right arrow dropped the name modal\n"); return 1; }
                 }
                 if (h[1] == h[0] || h[tank.n_fish] != h[0]) { printf("FAIL: a fish's name did not step through the %d fish and back\n", tank.n_fish); return 1; }
                 render_milestones_leave();
-                if (render_milestones_tap(&tank, 100, 254 + 10) != MS_TAP_KEPT) { printf("FAIL: TANK's tally did not open\n"); return 1; }
-                render_milestones_tap(&tank, 56 + 336 - 30, 100 + 26);          /* no arrows on a group of one: this closes it */
-                if (render_milestones_tap(&tank, 200, 232) != MS_TAP_NONE) { printf("FAIL: TANK's tally grew arrows\n"); return 1; }
+                if (render_milestones_tap(&tank, 100, 360 + 10) != MS_TAP_KEPT) { printf("FAIL: TANK's tally did not open\n"); return 1; }
+                render_milestones_tap(&tank, 64 + 352 - 30, 162 + 26);          /* no arrows on a group of one: this closes it */
+                if (render_milestones_tap(&tank, 200, 56 + 5 * 48 + 14) != MS_TAP_NONE) { printf("FAIL: TANK's tally grew arrows\n"); return 1; }
                 printf("selftest-pop: the modal's arrows cycle the badges, the fish and back round; the tally has none\n");
             }
             printf("selftest-pop: NEW FRY row at %d fish: %d gates, first %s / %s / %s\n", tank.n_fish, n, req[0].title, req[0].words, req[0].progress);
@@ -614,7 +614,7 @@ static int selftest_sleep(void) {
             int v = 0, r;
             #define SET_TAP_AT(X, Y) (render_settings_touch(&tank, (X), (Y), true, &v), render_settings_touch(&tank, (X), (Y), false, &v))
             if (tank.light_idle_s != LIGHT_IDLE_S || tank.light_auto) { printf("FAIL: light settings not at the default (%d s, auto %d)\n", tank.light_idle_s, tank.light_auto); return 1; }
-            r = SET_TAP_AT(190 + 38, 176 + 10);                               /* LIGHTS OUT: MANUAL (the first segment, already the default) */
+            r = SET_TAP_AT(206 + 38, 236 + 10);                               /* LIGHTS OUT: MANUAL (the first segment, already the default) */
             if (r != SET_TAP_LIGHT || v != 0 || tank.light_auto) { printf("FAIL: LIGHTS OUT MANUAL tap -> %d/%d, auto %d\n", r, v, tank.light_auto); return 1; }
             for (int i = 0; i < 30 * 60; i++) tank_tick(&tank, 1.0f / 60.0f, advisor_rules);
             if (tank.night) { printf("FAIL: lights went out in MANUAL\n"); return 1; }
@@ -631,31 +631,31 @@ static int selftest_sleep(void) {
             for (int i = 0; i < 3; i++) tank_touch_tap(&tank, 200, 200);         /* three taps = a startle, not a toggle */
             for (int i = 0; i < 60; i++) tank_tick(&tank, 1.0f / 60.0f, advisor_rules);
             if (tank.night) { printf("FAIL: a triple tap toggled the light\n"); return 1; }
-            r = SET_TAP_AT(190 + 82 + 38, 176 + 10);                          /* AUTO: the second segment */
+            r = SET_TAP_AT(206 + 82 + 38, 236 + 10);                          /* AUTO: the second segment */
             if (r != SET_TAP_LIGHT || v != 1 || !tank.light_auto || tank.light_manual_off) { printf("FAIL: LIGHTS OUT AUTO tap -> %d/%d\n", r, v); return 1; }
             tank_touch_tap(&tank, 200, 200); tank_touch_tap(&tank, 200, 200);   /* in AUTO a double-tap is nothing */
             for (int i = 0; i < 60; i++) tank_tick(&tank, 1.0f / 60.0f, advisor_rules);
             if (tank.night || tank.light_manual_off) { printf("FAIL: a double-tap in AUTO touched the light\n"); return 1; }
-            r = SET_TAP_AT(190 + 34, 266 - 30 - 2);                            /* the up chevron: 15 -> 16 */
+            r = SET_TAP_AT(206 + 34, 330 - 30 - 2);                            /* the up chevron: 15 -> 16 */
             if (r != SET_TAP_IDLE || tank.light_idle_s != 16) { printf("FAIL: up chevron -> %d, %d s\n", r, tank.light_idle_s); return 1; }
-            r = SET_TAP_AT(190 + 34, 176 + 10 + 40 + 10);                     /* just under the LIGHTS OUT buttons is the number's, not MANUAL's */
+            r = SET_TAP_AT(206 + 34, 236 + 10 + 40 + 10);                     /* just under the LIGHTS OUT buttons is the number's, not MANUAL's */
             if (r != SET_TAP_IDLE || tank.light_idle_s != 17 || !tank.light_auto) { printf("FAIL: the band under the segments -> %d, %d s, auto %d\n", r, tank.light_idle_s, tank.light_auto); return 1; }
-            render_settings_touch(&tank, 190 + 34, 266 + 14, true, &v);        /* press the number, swipe up 3 steps: 17 -> 20 */
-            for (int k = 1; k <= 30; k++) render_settings_touch(&tank, 190 + 34, 266 + 14 - k * 3 * 15 / 30.0f - 0.5f, true, &v);
-            r = render_settings_touch(&tank, 190 + 34, 266 + 14 - 3 * 15 - 1, false, &v);
+            render_settings_touch(&tank, 206 + 34, 330 + 14, true, &v);        /* press the number, swipe up 3 steps: 17 -> 20 */
+            for (int k = 1; k <= 30; k++) render_settings_touch(&tank, 206 + 34, 330 + 14 - k * 3 * 15 / 30.0f - 0.5f, true, &v);
+            r = render_settings_touch(&tank, 206 + 34, 330 + 14 - 3 * 15 - 1, false, &v);
             if (r != SET_TAP_IDLE || v != 20 || tank.light_idle_s != 20) { printf("FAIL: swipe up -> %d, %d s\n", r, tank.light_idle_s); return 1; }
-            render_settings_touch(&tank, 190 + 34, 266 + 14, true, &v);        /* and down 11 steps: 20 -> 9, straight through 10 */
-            for (int k = 1; k <= 55; k++) render_settings_touch(&tank, 190 + 34, 266 + 14 + k * 3 + 0.5f, true, &v);
-            r = render_settings_touch(&tank, 190 + 34, 266 + 14 + 11 * 15 + 1, false, &v);
+            render_settings_touch(&tank, 206 + 34, 330 + 14, true, &v);        /* and down 11 steps: 20 -> 9, straight through 10 */
+            for (int k = 1; k <= 55; k++) render_settings_touch(&tank, 206 + 34, 330 + 14 + k * 3 + 0.5f, true, &v);
+            r = render_settings_touch(&tank, 206 + 34, 330 + 14 + 11 * 15 + 1, false, &v);
             if (r != SET_TAP_IDLE || tank.light_idle_s != 9) { printf("FAIL: swipe down -> %d, %d s (want 9)\n", r, tank.light_idle_s); return 1; }
-            for (int i = 0; i < 6; i++) SET_TAP_AT(190 + 34, 266 + 28 + 30 + 8);   /* the down chevron x6: 9 -> 5, held at the floor */
+            for (int i = 0; i < 6; i++) SET_TAP_AT(206 + 34, 330 + 28 + 30 + 8);   /* the down chevron x6: 9 -> 5, held at the floor */
             if (tank.light_idle_s != LIGHT_IDLE_MIN_S) { printf("FAIL: the floor: %d s\n", tank.light_idle_s); return 1; }
             tank.light_idle_s = 20; tank_handled(&tank);
             for (int i = 0; i < 18 * 60; i++) tank_tick(&tank, 1.0f / 60.0f, advisor_rules);
             if (tank.night) { printf("FAIL: dark at 18 s with 20 s set\n"); return 1; }
             for (int i = 0; i < 3 * 60; i++) tank_tick(&tank, 1.0f / 60.0f, advisor_rules);
             if (!tank.night) { printf("FAIL: lit at 21 s with 20 s set\n"); return 1; }
-            r = SET_TAP_AT(324 + 40, 312 + 10);
+            r = SET_TAP_AT(320 + 40, 424 + 10);
             if (r != SET_TAP_CLOSE) { printf("FAIL: CLOSE -> %d\n", r); return 1; }
             progression_save(&tank); tank_init(&tank, 8); progression_boot(&tank);
             if (tank.light_idle_s != 20 || !tank.light_auto) { printf("FAIL: light settings did not survive the save (%d s)\n", tank.light_idle_s); return 1; }
@@ -714,6 +714,28 @@ static int selftest_sleep(void) {
                    tank.n_fish, tank.n_fish ? tank.fish[0].name : "-", tank.fish[0].ms_seen, tank.tank_ms_seen,
                    want_seen, want_tseen, tank.bubble_x, bx_default); return 1; }
         printf("selftest-sleep: a 1432-byte save from the first public installer builds keeps its badges seen and its bubble column\n");
+    }
+    /* a save from before the square tank (2026-09-17) was written in the
+       448 x 368 world, with no world tail: its spots come across with the
+       glass - x scaled to the wider tank, a snail on the floor still on it */
+    {
+        const char *sav = getenv("POCKET_TANK_SAVE");
+        tank_init(&tank, 8); progression_boot(&tank);
+        tank.sd_unlocks |= SD_ITEM_SNAIL | SD_ITEM_CASTLE;
+        tank_set_bubble_x(&tank, 300); tank_decor_set(&tank, 2, 280, DECOR_Z_BACK);
+        tank.snail_x = 224; tank.snail_y = 368 - 24.0f;
+        progression_save(&tank);
+        FILE *f = fopen(sav, "rb"); if (!f) return 1;
+        fseek(f, 0, SEEK_END); long len = ftell(f); fclose(f);
+        if (truncate(sav, len - (4 + ALGAE_CELLS))) { printf("FAIL: could not cut the world tail\n"); return 1; }   /* world_w, world_h, algae_sq */
+        tank_init(&tank, 8); progression_boot(&tank);
+        float kx = TANK_W / 448.0f;
+        if (fabsf(tank.bubble_x - 300 * kx) > 0.5f || fabsf(tank_decor_x(&tank, 2) - 280 * kx) > 0.5f ||
+            fabsf(tank.snail_x - 224 * kx) > 1.0f || fabsf(tank.snail_y - SNAIL_FLOOR_Y) > 1.0f || tank_decor_z(&tank, 2) != DECOR_Z_BACK) {
+            printf("FAIL: a 448 x 368 save came back with bubbles %.0f (want %.0f), castle %.0f (want %.0f), snail %.0f,%.0f (want %.0f,%.0f)\n",
+                   tank.bubble_x, 300 * kx, tank_decor_x(&tank, 2), 280 * kx, tank.snail_x, tank.snail_y, 224 * kx, SNAIL_FLOOR_Y); return 1; }
+        printf("selftest-sleep: a 448 x 368 save moves into the square tank (bubbles %.0f, castle %.0f, the snail still on the floor)\n",
+               tank.bubble_x, tank_decor_x(&tank, 2));
     }
     printf("selftest-sleep: dash %.0f px/s at the drop; fed and calmed %.1f s after pellets\n",
            dash_speed, fed_at / 60.0f);
@@ -1304,13 +1326,13 @@ static int snapshot(const char *prefix, int seconds) {
     snprintf(path, sizeof path, "%s_shop.ppm", prefix); write_ppm(path, fb);
     tank.sd_balance = 95; render_shop(&tank, fb, TANK_W);
     snprintf(path, sizeof path, "%s_shop_rich.ppm", prefix); write_ppm(path, fb);
-    render_shop_tap(&tank, 100, 98 + 56 + 20); render_shop(&tank, fb, TANK_W);      /* the snail's row -> its modal */
+    render_shop_tap(&tank, 100, 124 + 72 + 20); render_shop(&tank, fb, TANK_W);      /* the snail's row -> its modal */
     snprintf(path, sizeof path, "%s_shop_modal.ppm", prefix); write_ppm(path, fb);
     render_shop_leave();
-    render_shop_tap(&tank, 100, 98 + 20); render_shop(&tank, fb, TANK_W);           /* the plant's row -> its modal (the long second line) */
+    render_shop_tap(&tank, 100, 124 + 20); render_shop(&tank, fb, TANK_W);           /* the plant's row -> its modal (the long second line) */
     snprintf(path, sizeof path, "%s_shop_plant.ppm", prefix); write_ppm(path, fb);
     render_shop_leave();
-    render_shop_tap(&tank, 60, 320); render_shop(&tank, fb, TANK_W);                /* HOW TO EARN */
+    render_shop_tap(&tank, 60, 424 + 10); render_shop(&tank, fb, TANK_W);                /* HOW TO EARN */
     snprintf(path, sizeof path, "%s_shop_earn.ppm", prefix); write_ppm(path, fb);
     render_shop_leave();
     tank.sd_unlocks = SD_ITEM_PLANT | SD_ITEM_SNAIL; tank_plant_place(&tank); tank_snail_place(&tank);
@@ -1342,7 +1364,7 @@ static int snapshot(const char *prefix, int seconds) {
       snprintf(path, sizeof path, "%s_tank_snail_up.ppm", prefix); write_ppm(path, fb);
       memcpy(tank.algae, film, sizeof film); }
     tank.sd_unlocks = 0; tank.sd_balance = 0;
-    render_milestones_tap(&tank, 176 + 16, 4 + 40 + 20);           /* fish 1's first badge -> the detail modal */
+    render_milestones_tap(&tank, 196 + 16, 56 + 48 + 24);           /* fish 1's first badge -> the detail modal */
     render_milestones(&tank, fb, TANK_W);
     snprintf(path, sizeof path, "%s_milestone_modal.ppm", prefix); write_ppm(path, fb);
     render_milestones_leave();
@@ -1402,14 +1424,14 @@ static int snapshot(const char *prefix, int seconds) {
         tank.tank_ms_seen = tank.tank_ms_bits;
         render_milestones(&tank, fb, TANK_W);
         snprintf(path, sizeof path, "%s_milestones_fry.ppm", prefix); write_ppm(path, fb);
-        render_milestones_tap(&tank, 176 + 16, 4 + 2 * 40 + 20);        /* the TRUST gate -> its modal */
+        render_milestones_tap(&tank, 196 + 16, 56 + 2 * 48 + 24);        /* the TRUST gate -> its modal */
         render_milestones(&tank, fb, TANK_W);
         snprintf(path, sizeof path, "%s_fry_modal.ppm", prefix); write_ppm(path, fb);
-        render_milestones_tap(&tank, 56 + 336 / 2, 60 + 156 + 20 + 24 + 32 + 14 - 10 - 16);   /* HOW? -> the tip page */
+        render_milestones_tap(&tank, 64 + 352 / 2, 117 + 156 + 20 + 24 + 32 + 14 - 10 - 16);   /* HOW? -> the tip page */
         render_milestones(&tank, fb, TANK_W);
         snprintf(path, sizeof path, "%s_fry_tip.ppm", prefix); write_ppm(path, fb);
         render_milestones_leave();
-        render_milestones_tap(&tank, 100, 4 + 2 * 40 + 10);              /* the name -> the tally */
+        render_milestones_tap(&tank, 100, 56 + 2 * 48 + 14);              /* the name -> the tally */
         render_milestones(&tank, fb, TANK_W);
         snprintf(path, sizeof path, "%s_fry_tally.ppm", prefix); write_ppm(path, fb);
         render_milestones_leave();
@@ -1599,9 +1621,9 @@ static int selftest_shop(void) {
         memset(tank.algae, 0, sizeof tank.algae); tank.snail_cell = -1; tank.snail_x = 200; tank.snail_y = 120; tank.snail_heading = 0;
         SHOP_TICK(60 * 5);
         if (tank_snail_upright(&tank)) { printf("FAIL: upright while still coming down the glass (y %.0f)\n", tank.snail_y); return 1; }
-        SHOP_TICK(60 * 60);
+        SHOP_TICK(60 * 90);                              /* 336 px of glass at 4 px/s on the square tank (224 on the 1.8's) */
         float fx = tank.snail_x;
-        if (!tank_snail_upright(&tank) || fabsf(tank.snail_y - SNAIL_FLOOR_Y) > 0.5f) { printf("FAIL: not on the floor after a minute (y %.0f)\n", tank.snail_y); return 1; }
+        if (!tank_snail_upright(&tank) || fabsf(tank.snail_y - SNAIL_FLOOR_Y) > 0.5f) { printf("FAIL: not on the floor after a minute and a half (y %.0f)\n", tank.snail_y); return 1; }
         SHOP_TICK(60 * 120);
         if (tank.snail_x == fx) { printf("FAIL: the floor walk did not move\n"); return 1; }
         tank.algae[3 * ALGAE_COLS + 20] = 150;
@@ -1613,15 +1635,15 @@ static int selftest_shop(void) {
     {
         static uint16_t fb[TANK_W * TANK_H];
         render_milestones(&tank, fb, TANK_W);
-        if (render_milestones_tap(&tank, 52, 254 + 20) != MS_TAP_SHOP) { printf("FAIL: the sand dollar did not open the shop\n"); return 1; }
-        if (render_milestones_tap(&tank, 178 + 58, 312 + 10) != MS_TAP_SHOP) { printf("FAIL: UPGRADES did not open the shop\n"); return 1; }
-        if (render_milestones_tap(&tank, 32 + 58, 312 + 10) != MS_TAP_SETTINGS || render_milestones_tap(&tank, 324 + 46, 312 + 10) != MS_TAP_CLOSE) { printf("FAIL: SETTINGS / CLOSE moved\n"); return 1; }
+        if (render_milestones_tap(&tank, 52, 360 + 20) != MS_TAP_SHOP) { printf("FAIL: the sand dollar did not open the shop\n"); return 1; }
+        if (render_milestones_tap(&tank, 176 + 64, 424 + 10) != MS_TAP_SHOP) { printf("FAIL: UPGRADES did not open the shop\n"); return 1; }
+        if (render_milestones_tap(&tank, 32 + 64, 424 + 10) != MS_TAP_SETTINGS || render_milestones_tap(&tank, 320 + 64, 424 + 10) != MS_TAP_CLOSE) { printf("FAIL: SETTINGS / CLOSE moved\n"); return 1; }
         render_milestones_leave();
         tank.sd_unlocks = 0; tank.sd_balance = SD_PRICE_PLANT + 5; want = tank.sd_balance;
         render_shop(&tank, fb, TANK_W);
-        if (render_shop_tap(&tank, 100, 98 + 20) != SHOP_TAP_KEPT) { printf("FAIL: the plant's row did not open its modal\n"); return 1; }
+        if (render_shop_tap(&tank, 100, 124 + 20) != SHOP_TAP_KEPT) { printf("FAIL: the plant's row did not open its modal\n"); return 1; }
         render_shop(&tank, fb, TANK_W);
-        int r = render_shop_tap(&tank, 56 + 336 / 2, 48 + 244 - 12 - 16);
+        int r = render_shop_tap(&tank, 64 + 352 / 2, 118 + 244 - 12 - 16);
         if (r != SHOP_TAP_BUY + 0) { printf("FAIL: UNLOCK in the modal returned %d\n", r); return 1; }
         if (!progression_buy(&tank, 0)) { printf("FAIL: the page's UNLOCK did not buy\n"); return 1; }
         want -= SD_PRICE_PLANT; SHOP_WANT("bought from the page");
@@ -1747,17 +1769,17 @@ static int selftest_shop(void) {
         }
         /* the shop's MOVE: the owned plant's modal re-opens the page */
         render_shop(&tank, fb, TANK_W);
-        if (render_shop_tap(&tank, 100, 98 + 20) != SHOP_TAP_KEPT) { printf("FAIL: the owned plant's row did not open its modal\n"); return 1; }
+        if (render_shop_tap(&tank, 100, 124 + 20) != SHOP_TAP_KEPT) { printf("FAIL: the owned plant's row did not open its modal\n"); return 1; }
         render_shop(&tank, fb, TANK_W);
-        if (render_shop_tap(&tank, 56 + 336 / 2, 48 + 244 - 12 - 16) != SHOP_TAP_MOVE + 0) { printf("FAIL: MOVE in the owned modal\n"); return 1; }
+        if (render_shop_tap(&tank, 64 + 352 / 2, 118 + 244 - 12 - 16) != SHOP_TAP_MOVE + 0) { printf("FAIL: MOVE in the owned modal\n"); return 1; }
         tank.sd_balance = 5; want = tank.sd_balance;
         render_shop(&tank, fb, TANK_W);
-        if (render_shop_tap(&tank, 100, 98 + 56 + 20) != SHOP_TAP_KEPT) { printf("FAIL: the snail's row did not open its modal\n"); return 1; }
-        r = render_shop_tap(&tank, 56 + 336 / 2, 48 + 244 - 12 - 16);     /* short by 75: the dim button buys nothing */
+        if (render_shop_tap(&tank, 100, 124 + 72 + 20) != SHOP_TAP_KEPT) { printf("FAIL: the snail's row did not open its modal\n"); return 1; }
+        r = render_shop_tap(&tank, 64 + 352 / 2, 118 + 244 - 12 - 16);     /* short by 75: the dim button buys nothing */
         if (r != SHOP_TAP_KEPT) { printf("FAIL: a dim UNLOCK returned %d\n", r); return 1; }
-        if (render_shop_tap(&tank, 60, 320) != SHOP_TAP_KEPT) { printf("FAIL: HOW TO EARN did not open\n"); return 1; }
+        if (render_shop_tap(&tank, 60, 424 + 10) != SHOP_TAP_KEPT) { printf("FAIL: HOW TO EARN did not open\n"); return 1; }
         if (render_shop_tap(&tank, 200, 200) != SHOP_TAP_KEPT) { printf("FAIL: the earn modal did not close\n"); return 1; }
-        if (render_shop_tap(&tank, 324 + 40, 312 + 10) != SHOP_TAP_CLOSE) { printf("FAIL: CLOSE\n"); return 1; }
+        if (render_shop_tap(&tank, 320 + 40, 424 + 10) != SHOP_TAP_CLOSE) { printf("FAIL: CLOSE\n"); return 1; }
         render_shop_leave();
         printf("selftest-shop: pages: the sand dollar and UPGRADES open the shop; a row -> modal -> UNLOCK buys; a dim UNLOCK does not; HOW TO EARN; CLOSE\n");
     }
@@ -1993,7 +2015,7 @@ int main(int argc, char **argv) {
           if (mx != lmx || my != lmy || mpress || k[SDL_SCANCODE_H]) tank_handled(&tank);
           lmx = mx; lmy = my; }
         uint32_t now_ms = SDL_GetTicks();
-        /* mouse -> touch gestures (device: FT3168 does the same job)
+        /* mouse -> touch gestures (device: the CST9217 does the same job)
          *   press+release < 350 ms, little movement: TAP (on a fish = select its card;
          *                                              card up + empty glass = dismiss;
          *                                              on the surface = feed)

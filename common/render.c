@@ -1559,33 +1559,39 @@ int render_confirm_hit(float x, float y) {
 }
 
 /* ---- milestones page (2026-09-13 redesign: an achievement wall) ----
- * Rows of 40 px: the fish (render_fish_preview at its real size, so growth
- * shows), its name, a growth strip, then six 32 px badges at a 40 px pitch.
+ * Rows of 48 px under a MILESTONES title (the square tank, 2026-09-17: the
+ * 1.8's rows were 40 px with no title): the fish (render_fish_preview at
+ * its real size, so growth shows), its name, a growth strip, then six 32 px
+ * badges at a 44 px pitch.
  * The tank row repeats the shape with the population strip. A locked badge
  * is the art as a flat grey silhouette (blit_icon_locked); a badge earned
  * since the keeper last closed the page wears a two-tone ring. Tapping a
  * badge / a name / a strip opens a small detail modal in the reset prompt's
  * dress (the art at 2x, a title, the words); the next tap anywhere closes
  * it back to the page. Render-local state, cleared by render_milestones_leave. */
-#define MSP_ROW_Y0    4
-#define MSP_ROW_H     40
-#define MSP_TANK_Y    254
-#define MSP_BADGE_X0  176
-#define MSP_BADGE_DX  40
+#define MSP_TITLE_Y   18                /* MILESTONES, 3x, centred */
+#define MSP_ROW_Y0    56
+#define MSP_ROW_H     48
+#define MSP_ROW_PAD   4                 /* a row's art sits 4 px down its 48 px band */
+#define MSP_PORTRAIT_X 52               /* the fish's centre */
+#define MSP_NAME_X    92
+#define MSP_TANK_Y    360               /* under the last of six rows (56 + 6 x 48 = 344) and the divider */
+#define MSP_BADGE_X0  196
+#define MSP_BADGE_DX  44                /* the last badge ends 32 px in from the glass */
 #define MSP_ICON      32
-#define MSP_CLOSE_X   324               /* the CLOSE button, bottom right, inside the bezel curve; clear of the brightness row's number */
-#define MSP_CLOSE_Y   312
-#define MSP_CLOSE_W   92
-#define MSP_CLOSE_H   30
-#define MSP_SET_X     32                /* the SETTINGS button, bottom left, where the brightness row was */
-#define MSP_SET_W     116
+#define MSP_CLOSE_W   128               /* three equal buttons across the foot, 16 px apart */
+#define MSP_CLOSE_H   36
+#define MSP_CLOSE_X   (TANK_W - 32 - MSP_CLOSE_W)   /* CLOSE, bottom right */
+#define MSP_CLOSE_Y   (TANK_H - 20 - MSP_CLOSE_H)
+#define MSP_SET_X     32                /* the SETTINGS button, bottom left */
+#define MSP_SET_W     MSP_CLOSE_W
 #define MSP_SD_X      36                /* the sand dollar on the TANK row (the shop), centred like the fish portraits */
-#define MSP_UPG_X     178               /* the UPGRADES button, centred between SETTINGS and CLOSE: the shop too (Strato, 2026-09-15) */
-#define MSP_UPG_W     116
-#define MSP_MODAL_X   56
-#define MSP_MODAL_Y   100
-#define MSP_MODAL_W   336
+#define MSP_UPG_W     MSP_CLOSE_W       /* the UPGRADES button, centred between SETTINGS and CLOSE: the shop too (Strato, 2026-09-15) */
+#define MSP_UPG_X     ((TANK_W - MSP_UPG_W) / 2)
+#define MSP_MODAL_W   352
 #define MSP_MODAL_H   156
+#define MSP_MODAL_X   ((TANK_W - MSP_MODAL_W) / 2)
+#define MSP_MODAL_Y   ((TANK_H - MSP_MODAL_H) / 2)
 #define MSP_INK       0x031015
 #define MSP_DIM       0x2a3f45
 #define MSP_TEAL      0x9fd8e2
@@ -1627,9 +1633,9 @@ static bool g_ms_tankrow, g_ms_fryrow;
 #define MSP_ARROW_IN  10
 #define MSP_ARROW_HIT 100            /* the hit box: the corner's whole width in from each side, 12 above, 24 below
                                         (a miss closes the modal, so the box is wide) */
-/* a gate's modal is taller (two sentence lines, progress, the HOW? button)
-   so it sits higher than the badge modal, clear of the CLOSE button */
-#define MSP_FRY_MODAL_Y 60
+/* a gate's modal is taller (two sentence lines, progress, the HOW? button):
+   centred for its full height, higher than the badge modal */
+#define MSP_FRY_MODAL_Y ((TANK_H - (MSP_MODAL_H + 20 + 24 + MSP_HOW_H + 14)) / 2)
 #define MSP_HOW_W 100                 /* CLOSE-sized (Strato hit the 76 x 26 one a third of the time) */
 #define MSP_HOW_H 32
 /* its hit box: wide and deep. Fingers on this panel land low and wide of
@@ -1745,14 +1751,15 @@ void render_milestones(const tank_t *t, uint16_t *fb, int stride) {
     ctx_t c = ctx_full(fb, stride, 1.0f);
     for (int y = 0; y < TANK_H; y++)
         for (int x = 0; x < TANK_W; x++) fb[y * stride + x] = rgb565(MSP_INK, 1);
+    draw_text(&c, (TANK_W - text_w("MILESTONES", 3)) / 2, MSP_TITLE_Y, 3, 0xffffff, "MILESTONES");
     for (int i = 0; i < t->n_fish; i++) {
         const fish_t *f = &t->fish[i];
-        int top = MSP_ROW_Y0 + i * MSP_ROW_H;
-        render_fish_preview(fb, stride, 52, top + 20, f->size, f->color, f->fin, f->accent, t->clock);
-        draw_text(&c, 92, top + 2, 2, 0xffffff, f->name);
-        static const int GX[4] = { 96, 111, 129, 151 };   /* each glyph's own pitch: a 4 px gap as they grow */
+        int top = MSP_ROW_Y0 + i * MSP_ROW_H + MSP_ROW_PAD;
+        render_fish_preview(fb, stride, MSP_PORTRAIT_X, top + 20, f->size, f->color, f->fin, f->accent, t->clock);
+        draw_text(&c, MSP_NAME_X, top + 2, 2, 0xffffff, f->name);
+        static const int GX[4] = { 4, 19, 37, 59 };   /* each glyph's own pitch past the name's x: a 4 px gap as they grow */
         for (int s = 0; s < 4; s++)          /* growth strip: fry -> elder, lit up to the stage reached */
-            fish_glyph(&c, GX[s], top + 30, 2.2f + s * 0.9f, s <= (int)f->stage ? f->accent : MSP_DIM);
+            fish_glyph(&c, MSP_NAME_X + GX[s], top + 30, 2.2f + s * 0.9f, s <= (int)f->stage ? f->accent : MSP_DIM);
         for (int k = 0; k < 6; k++) {
             uint32_t bit = FISH_BADGES[k].bit;
             badge(&c, MSP_BADGE_X0 + k * MSP_BADGE_DX, top + 4, FISH_BADGES[k].icon,
@@ -1766,12 +1773,12 @@ void render_milestones(const tank_t *t, uint16_t *fb, int stride) {
     fry_req_t req[FRY_REQ_MAX]; bool staged;
     int nreq = progression_next_fry(t, req, &staged);
     if (nreq > 0) {
-        int top = MSP_ROW_Y0 + t->n_fish * MSP_ROW_H;
+        int top = MSP_ROW_Y0 + t->n_fish * MSP_ROW_H + MSP_ROW_PAD;
         uint32_t fry_rgb = staged ? MSP_TEAL : MSP_DIM;
-        render_fish_preview(fb, stride, 52, top + 20, 0.55f, fry_rgb, fry_rgb, fry_rgb, t->clock);
-        draw_text(&c, 92, top + 2, 2, MSP_TEAL, "NEW FRY");
+        render_fish_preview(fb, stride, MSP_PORTRAIT_X, top + 20, 0.55f, fry_rgb, fry_rgb, fry_rgb, t->clock);
+        draw_text(&c, MSP_NAME_X, top + 2, 2, MSP_TEAL, "NEW FRY");
         for (int k = 0; k < nreq; k++)           /* one tick per gate, lit when met */
-            rect_fill(&c, 96 + k * 14, top + 27, 10, 6, req[k].met ? MSP_TEAL : MSP_DIM);
+            rect_fill(&c, MSP_NAME_X + 4 + k * 14, top + 27, 10, 6, req[k].met ? MSP_TEAL : MSP_DIM);
         for (int k = 0; k < nreq; k++) {
             int x = MSP_BADGE_X0 + k * MSP_BADGE_DX;
             fry_badge(&c, fb, stride, t, x, top + 4, &req[k]);
@@ -1784,16 +1791,16 @@ void render_milestones(const tank_t *t, uint16_t *fb, int stride) {
     }
     /* the tank's row: the sand dollar at the left (the fish rows' portrait
        slot) opens the shop (2026-09-15) */
-    for (int x = 24; x < TANK_W - 24; x++) px_blend(&c, x, MSP_TANK_Y - 4, MSP_DIM, 200);
+    for (int x = 24; x < TANK_W - 24; x++) px_blend(&c, x, MSP_TANK_Y - 8, MSP_DIM, 200);
     blit_icon(&c, MSP_SD_X, MSP_TANK_Y, &icon_ms_sand_dollar, 255);
     {   /* the balance under the coin (Strato, 2026-09-15), centred on it - the
            only room: the divider and the last row sit above, 12 px to the left */
         char bal[16]; snprintf(bal, sizeof bal, "%d", (int)t->sd_balance);
         draw_text(&c, MSP_SD_X + (MSP_ICON - text_w(bal, 2)) / 2, MSP_TANK_Y + 34, 2, 0xffffff, bal);
     }
-    draw_text(&c, 92, MSP_TANK_Y + 2, 2, MSP_TEAL, "TANK");
+    draw_text(&c, MSP_NAME_X, MSP_TANK_Y + 2, 2, MSP_TEAL, "TANK");
     for (int k = 0; k < POP_CAP; k++)        /* population strip: who is here, who could still arrive */
-        fish_glyph(&c, 96 + k * 14, MSP_TANK_Y + 30, 2.8f, k < t->n_fish ? MSP_TEAL : MSP_DIM);
+        fish_glyph(&c, MSP_NAME_X + 4 + k * 14, MSP_TANK_Y + 30, 2.8f, k < t->n_fish ? MSP_TEAL : MSP_DIM);
     for (int k = 0; k < 6; k++) {
         uint32_t bit = TANK_BADGES[k].bit;
         badge(&c, MSP_BADGE_X0 + k * MSP_BADGE_DX, MSP_TANK_Y + 4, TANK_BADGES[k].icon,
@@ -1891,7 +1898,7 @@ int render_milestones_tap(const tank_t *t, float x, float y) {
         if (row < 0) row = 0;
         if (row == t->n_fish && nreq > 0) fry_row = true;   /* the NEW FRY row */
         else if (row >= t->n_fish) return MS_TAP_NONE;      /* an empty row */
-    } else if (y >= MSP_TANK_Y - 6 && y < MSP_CLOSE_Y - 4) tank_row = true;   /* down to the button strip: fingers near the
+    } else if (y >= MSP_TANK_Y - 12 && y < MSP_CLOSE_Y - 4) tank_row = true;   /* down to the button strip: fingers near the
                                                                               bottom bezel report LOW */
     else return MS_TAP_NONE;
     int k;                                           /* badge column, or -1 for the name / strip cluster */
@@ -1900,7 +1907,7 @@ int render_milestones_tap(const tank_t *t, float x, float y) {
         if (k > 5) k = 5;
     } else if (x >= 20 && x < MSP_BADGE_X0 - 4) k = -1;
     else return MS_TAP_NONE;
-    if (tank_row && x < 88) return MS_TAP_SHOP;      /* the sand dollar: the shop page */
+    if (tank_row && x < MSP_NAME_X - 4) return MS_TAP_SHOP;      /* the sand dollar: the shop page */
     return ms_open(t, row, tank_row, fry_row, k, req, nreq, staged);
 }
 /* open the detail modal for a row's name / strip (k < 0) or its k-th badge
@@ -2014,22 +2021,24 @@ void render_notice(const tank_t *t, uint16_t *fb, int stride, int kind, int fish
  * page. Fingers land low here too: the row bands run 8 px above and to the
  * next row, the buttons' bands to the glass edge. */
 #define SHP_COIN_X    32
-#define SHP_COIN_Y    10
-#define SHP_ROW_Y0    98
-#define SHP_ROW_DY    56
+#define SHP_COIN_Y    24
+#define SHP_ROW_Y0    124            /* the square tank (2026-09-17): 72 px rows, 56 on the 1.8 */
+#define SHP_ROW_DY    72
 #define SHP_ROW_ICON  32
-#define SHP_BTN_X     300
 #define SHP_BTN_W     116
-#define SHP_BTN_H     32
+#define SHP_BTN_X     (TANK_W - 32 - SHP_BTN_W)
+#define SHP_BTN_H     36
 #define SHP_EARN_X    32
 #define SHP_EARN_W    150
-#define SHP_MODAL_X   48             /* wider than the milestones modal (56 / 336): an item's second line runs to 28 chars = 334 px */
-#define SHP_MODAL_W   352
-#define SHP_MODAL_Y   48
+#define SHP_MODAL_W   352            /* an item's second line runs to 28 chars = 334 px */
+#define SHP_MODAL_X   ((TANK_W - SHP_MODAL_W) / 2)
 #define SHP_MODAL_H   244
-#define SHP_EARN_MODAL_Y 40
-/* the caption under the rows sits SHP_BTN_H + 12 under the last row (the third row, the castle, 2026-09-16: it used to be fixed at 224 / 244 and the castle's row ran into it) */
+#define SHP_MODAL_Y   ((TANK_H - SHP_MODAL_H) / 2)
+/* the caption under the rows: centred in the room between the last row and the buttons (the square tank, 2026-09-17; on the
+   1.8 it sat SHP_BTN_H + 12 under the last row, and before the castle's row it was fixed at 224 / 244) */
+#define SHP_CAPTION_Y ((SHP_ROW_Y0 + (SD_ITEM_COUNT - 1) * SHP_ROW_DY + SHP_BTN_H + MSP_CLOSE_Y - 34) / 2)
 #define SHP_EARN_MODAL_H 224
+#define SHP_EARN_MODAL_Y ((TANK_H - SHP_EARN_MODAL_H) / 2)
 static int  g_shp_modal = -1;        /* the item whose modal is up, or -1 */
 static bool g_shp_earn;              /* the HOW TO EARN modal is up */
 static const icon_t *shop_icon(int item) { return item == 0 ? &icon_shop_plant : item == 1 ? &icon_shop_snail : &icon_shop_castle; }
@@ -2045,7 +2054,7 @@ void render_shop(const tank_t *t, uint16_t *fb, int stride) {
     draw_text(&c, 112, SHP_COIN_Y + 6, 2, MSP_TEAL, "SAND DOLLARS");
     char bal[16]; snprintf(bal, sizeof bal, "%d", (int)t->sd_balance);
     draw_text(&c, 112, SHP_COIN_Y + 28, 4, 0xffffff, bal);
-    for (int x = 24; x < TANK_W - 24; x++) px_blend(&c, x, SHP_ROW_Y0 - 10, MSP_DIM, 200);
+    for (int x = 24; x < TANK_W - 24; x++) px_blend(&c, x, SHP_ROW_Y0 - 18, MSP_DIM, 200);
     for (int i = 0; i < SD_ITEM_COUNT; i++) {
         const sd_item_t *it = &SD_ITEMS[i];
         int top = SHP_ROW_Y0 + i * SHP_ROW_DY;
@@ -2059,8 +2068,8 @@ void render_shop(const tank_t *t, uint16_t *fb, int stride) {
                         draw_text(&c, SHP_BTN_X + (SHP_BTN_W - text_w("UNLOCK", 2)) / 2, top + (SHP_BTN_H - 14) / 2, 2, MSP_INK, "UNLOCK"); }
         else           button(&c, SHP_BTN_X, top, SHP_BTN_W, SHP_BTN_H, 0x1c2f36, MSP_DIM, "UNLOCK", 2);
     }
-    draw_text(&c, (TANK_W - text_w("EARN THEM BY CARING FOR", 2)) / 2, SHP_ROW_Y0 + (SD_ITEM_COUNT - 1) * SHP_ROW_DY + SHP_BTN_H + 12, 2, 0x3f6a72, "EARN THEM BY CARING FOR");
-    draw_text(&c, (TANK_W - text_w("THE TANK AND THE FISH", 2)) / 2, SHP_ROW_Y0 + (SD_ITEM_COUNT - 1) * SHP_ROW_DY + SHP_BTN_H + 32, 2, 0x3f6a72, "THE TANK AND THE FISH");
+    draw_text(&c, (TANK_W - text_w("EARN THEM BY CARING FOR", 2)) / 2, SHP_CAPTION_Y, 2, 0x3f6a72, "EARN THEM BY CARING FOR");
+    draw_text(&c, (TANK_W - text_w("THE TANK AND THE FISH", 2)) / 2, SHP_CAPTION_Y + 20, 2, 0x3f6a72, "THE TANK AND THE FISH");
     button(&c, SHP_EARN_X, MSP_CLOSE_Y, SHP_EARN_W, MSP_CLOSE_H, 0x1c2f36, MSP_TEAL, "HOW TO EARN", 2);
     button(&c, MSP_CLOSE_X, MSP_CLOSE_Y, MSP_CLOSE_W, MSP_CLOSE_H, 0x1c2f36, MSP_TEAL, "CLOSE", 2);
     if (g_shp_modal < 0 && !g_shp_earn) return;
@@ -2154,13 +2163,13 @@ void render_sd_toast(const tank_t *t, uint16_t *fb, int stride) {
  * (MANUAL, the default = the double-tap on the glass; AUTO = the idle rule,
  * the keeper's opt-in) with the idle time under it as one number: swipe it
  * up or down, or tap the chevrons; the default is LIGHT_IDLE_S. */
-#define SET_TITLE_Y   14
-#define SET_ROW1_Y    58             /* BRIGHTNESS */
-#define SET_ROW2_Y    108            /* VOLUME */
-#define SET_NOTE_Y    146            /* "FISH ARE QUIET AT NIGHT" */
-#define SET_ROW3_Y    176            /* LIGHTS OUT */
+#define SET_TITLE_Y   24             /* the square tank (2026-09-17): 64 px between the rows, 50 on the 1.8 */
+#define SET_ROW1_Y    88             /* BRIGHTNESS */
+#define SET_ROW2_Y    152            /* VOLUME */
+#define SET_NOTE_Y    196            /* "FISH ARE QUIET AT NIGHT" */
+#define SET_ROW3_Y    236            /* LIGHTS OUT */
 #define SET_LABEL_X   32
-#define SET_SEG_X     190            /* first segment */
+#define SET_SEG_X     206            /* first segment: the last ends 34 px in from the glass */
 #define SET_SEG_W     76
 #define SET_SEG_DX    82
 #define SET_SEG_H     40
@@ -2175,7 +2184,7 @@ void render_sd_toast(const tank_t *t, uint16_t *fb, int stride) {
 #define SET_NUM_H     (7 * SET_NUM_SCALE)
 #define SET_NUM_X     SET_SEG_X       /* the number's left edge (right-aligned in a 3-digit box) */
 #define SET_NUM_BOX_W (3 * 6 * SET_NUM_SCALE - SET_NUM_SCALE)
-#define SET_NUM_Y     266
+#define SET_NUM_Y     330
 #define SET_NUM_GAP   30              /* chevron tip to the number */
 #define SET_AFTER_Y   (SET_NUM_Y + (SET_NUM_H - 14) / 2)
 #define SET_STEP_PX   15              /* drag travel per step */

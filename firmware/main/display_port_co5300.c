@@ -1,7 +1,6 @@
 /* display_port_co5300.c — Waveshare 2.16" AMOLED (CO5300, 480x480) over QSPI
- * via esp_lcd. The tank renders landscape 448x368 (common/render.c) and is
- * sent unrotated, centered on the square panel (PANEL_TANK_X0/Y0); the border
- * is cleared to black once per panel init and never touched again. */
+ * via esp_lcd. The tank renders 480x480 (common/render.c), the whole panel,
+ * and is sent unrotated in 32-row DMA stripes. */
 #include "display_port.h"
 #include "board_pins.h"
 #include "tank.h"
@@ -21,8 +20,8 @@ static const char *TAG = "co5300";
 #define LCD_HOST SPI2_HOST
 #define STRIPE_ROWS 32                         /* panel rows per DMA transfer */
 
-_Static_assert(PANEL_TANK_X0 * 2 + TANK_W == PANEL_W && PANEL_TANK_Y0 * 2 + TANK_H == PANEL_H,
-               "the tank must sit centered on the panel");
+_Static_assert(TANK_W == PANEL_W && TANK_H == PANEL_H && PANEL_H % STRIPE_ROWS == 0,
+               "the tank is the whole panel, in whole stripes");
 
 static esp_lcd_panel_handle_t s_panel;
 static esp_lcd_panel_io_handle_t s_io;          /* kept for DCS writes after init (brightness) */
@@ -64,7 +63,8 @@ static const co5300_lcd_init_cmd_t init_cmds[] = {
     {0x36, (uint8_t[]){0xA0}, 1, 0},
 };
 
-/* the whole panel to black: the border around the tank is only ever drawn here */
+/* the whole panel to black before display-on: the first frame comes later,
+ * and panel RAM holds noise until then */
 static void clear_panel(void) {
     memset(s_stripe[0], 0, PANEL_W * STRIPE_ROWS * 2);
     for (int y = 0; y < PANEL_H; y += STRIPE_ROWS) {
@@ -101,7 +101,7 @@ bool display_port_init(void) {
     ESP_ERROR_CHECK(esp_lcd_panel_init(s_panel));
     clear_panel();
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(s_panel, true));
-    ESP_LOGI(TAG, "panel up: %dx%d, tank %dx%d at %d,%d", PANEL_W, PANEL_H, TANK_W, TANK_H, PANEL_TANK_X0, PANEL_TANK_Y0);
+    ESP_LOGI(TAG, "panel up: %dx%d, the tank's frame", PANEL_W, PANEL_H);
     return true;
 }
 
@@ -139,19 +139,16 @@ void display_port_set_brightness(uint8_t level) {
 }
 uint8_t display_port_brightness(void) { return s_brightness; }
 
-/* landscape fb[y][x] (TANK_W x TANK_H) -> the panel window at PANEL_TANK_X0/Y0,
- * row for row; flipped, panel (x,y) = fb[TANK_H-1-y][TANK_W-1-x]. Colors are
- * byte-swapped for the panel (big-endian RGB565 over SPI). Two stripe buffers
- * ping-pong so the copy of stripe N+1 overlaps the DMA of stripe N. TANK_H is
- * not a multiple of STRIPE_ROWS: the last stripe is short (16 rows - still
- * even, as the CO5300 window wants). */
+/* fb[y][x] (TANK_W x TANK_H) -> the panel, row for row; flipped, panel
+ * (x,y) = fb[TANK_H-1-y][TANK_W-1-x]. Colors are byte-swapped for the panel
+ * (big-endian RGB565 over SPI). Two stripe buffers ping-pong so the copy of
+ * stripe N+1 overlaps the DMA of stripe N. */
 void display_port_flush(const uint16_t *fb) {
     int cur = 0;
     for (int y0 = 0; y0 < TANK_H; y0 += STRIPE_ROWS) {
-        int rows = TANK_H - y0 < STRIPE_ROWS ? TANK_H - y0 : STRIPE_ROWS;
         xSemaphoreTake(s_stripe_free, portMAX_DELAY);
         uint16_t *stripe = s_stripe[cur];
-        for (int r = 0; r < rows; r++) {
+        for (int r = 0; r < STRIPE_ROWS; r++) {
             uint16_t *dst = stripe + r * TANK_W;
             if (!s_inverted) {
                 const uint16_t *src = fb + (y0 + r) * TANK_W;
@@ -161,8 +158,7 @@ void display_port_flush(const uint16_t *fb) {
                 for (int x = 0; x < TANK_W; x++) dst[x] = __builtin_bswap16(src[-x]);
             }
         }
-        esp_err_t err = esp_lcd_panel_draw_bitmap(s_panel, PANEL_TANK_X0, PANEL_TANK_Y0 + y0,
-                                                  PANEL_TANK_X0 + TANK_W, PANEL_TANK_Y0 + y0 + rows, stripe);
+        esp_err_t err = esp_lcd_panel_draw_bitmap(s_panel, 0, y0, TANK_W, y0 + STRIPE_ROWS, stripe);
         if (err != ESP_OK) {
             static int logged;
             if (logged++ < 3) ESP_LOGE(TAG, "draw_bitmap y0=%d: %s", y0, esp_err_to_name(err));

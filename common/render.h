@@ -58,8 +58,8 @@ void render_stats_card(const tank_t *t, int fish_idx, uint16_t *fb, int stride);
 /* Optional card cache (RENDER_CARD_W x RENDER_CARD_H uint16): with the scene
  * cache live, the card is redrawn at most 4x/s and blitted otherwise (~7 ms
  * -> ~1 ms per frame on the device). NULL = draw every frame. */
-#define RENDER_CARD_X 14
-#define RENDER_CARD_Y 8
+#define RENDER_CARD_X 20          /* the square panel's corner radius is small: an even 20 px in */
+#define RENDER_CARD_Y 20
 #define RENDER_CARD_W 124
 #define RENDER_CARD_H 258       /* 228 + the MORE button strip (2026-09-16) */
 /* the card's tap hit box (touch ports): the card itself plus slop, most of
@@ -144,10 +144,10 @@ void render_sd_toast(const tank_t *t, uint16_t *fb, int stride);
  * render_confirm_hit maps a tap in tank coordinates to a button (+1 YES,
  * -1 NO, 0 neither) so the device's touch port and the sim's mouse share
  * the geometry. */
-#define RENDER_CONFIRM_X     56
-#define RENDER_CONFIRM_Y     76
 #define RENDER_CONFIRM_W     336
 #define RENDER_CONFIRM_H     216
+#define RENDER_CONFIRM_X     ((TANK_W - RENDER_CONFIRM_W) / 2)      /* centred on the square tank */
+#define RENDER_CONFIRM_Y     ((TANK_H - RENDER_CONFIRM_H) / 2)
 #define RENDER_CONFIRM_BTN_W 132
 #define RENDER_CONFIRM_BTN_H 56
 #define RENDER_CONFIRM_BTN_Y (RENDER_CONFIRM_Y + 112)

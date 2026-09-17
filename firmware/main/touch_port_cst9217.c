@@ -8,7 +8,7 @@
  * snapshot AND the current position - fish move during a tap. While the stats
  * card is up, a tap anywhere on empty glass dismisses it (hunting the same
  * fish again to close it was the old, cumbersome way) and does nothing else.
- * Coordinates are mapped from the square panel into the centered tank. */
+ * Panel coordinates are tank coordinates: the tank is the whole panel. */
 #include "touch_port.h"
 #include "board_pins.h"
 #include "tank.h"
@@ -75,12 +75,11 @@ void touch_port_poll(tank_t *t) {
     uint16_t x[1], y[1], st[1]; uint8_t n = 0;
     esp_lcd_touch_read_data(s_tp);
     bool touched = esp_lcd_touch_get_coordinates(s_tp, x, y, st, &n, 1) && n > 0;
-    /* square panel (px,py) -> tank (tx,ty): minus the border offset; flipped
-     * screen: mirror both, so downstream gestures live in displayed space. A
-     * finger on the black border clamps to the tank's nearest edge (a drag
-     * down from the top border is still a feed). */
-    float tx = touched ? (float)(x[0] - PANEL_TANK_X0) : s_lx;
-    float ty = touched ? (float)(y[0] - PANEL_TANK_Y0) : s_ly;
+    /* panel (px,py) = tank (tx,ty); flipped screen: mirror both, so downstream
+     * gestures live in displayed space. The finger bias can push a point off
+     * the glass: clamp it back to the edge. */
+    float tx = touched ? (float)x[0] : s_lx;
+    float ty = touched ? (float)y[0] : s_ly;
     if (touched && s_inverted) { tx = TANK_W - 1 - tx; ty = TANK_H - 1 - ty; }
     if (touched) {
         ty -= s_bias_y;

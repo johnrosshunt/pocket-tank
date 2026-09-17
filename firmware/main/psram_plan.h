@@ -11,11 +11,11 @@
 
 #include <stdint.h>
 
-#define PLAN_FB_W            448
-#define PLAN_FB_H            368
-#define PLAN_FB_BYTES        (PLAN_FB_W * PLAN_FB_H * 2)          /* 329,728 */
+#define PLAN_FB_W            480                                  /* the AMOLED-2.16's square panel */
+#define PLAN_FB_H            480
+#define PLAN_FB_BYTES        (PLAN_FB_W * PLAN_FB_H * 2)          /* 460,800 */
 #define PLAN_FB_COUNT        2                                    /* double buffer */
-#define PLAN_FB_TOTAL        (PLAN_FB_BYTES * PLAN_FB_COUNT)      /* 659,456 */
+#define PLAN_FB_TOTAL        (PLAN_FB_BYTES * PLAN_FB_COUNT)      /* 921,600 */
 
 /* model: dim 384, 8 layers, 8 heads, seq 64 (word tokens) */
 #define PLAN_MODEL_DIM       384

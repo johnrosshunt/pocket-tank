@@ -17,10 +17,6 @@
 #define PIN_TP_INT        11
 #define PIN_TP_RST        40
 #define I2C_ADDR_CST9217  0x5A
-#define PANEL_W           480      /* square */
+#define PANEL_W           480      /* square: the tank is the whole panel (TANK_W x TANK_H) */
 #define PANEL_H           480
-/* the 448x368 landscape tank sits centered on the square panel; the border
- * stays AMOLED black. Even offsets: the CO5300 wants even window starts. */
-#define PANEL_TANK_X0     16
-#define PANEL_TANK_Y0     56
 #endif
