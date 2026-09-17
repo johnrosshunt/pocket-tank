@@ -52,7 +52,7 @@
  * be the one key the keeper ever presses - press to sleep, press to wake. */
 #define BTN_SLEEP GPIO_NUM_0
 static bool s_pmic;                        /* an AXP2101 answered: the PWR key exists, power-off is real */
-#ifdef CONFIG_POCKET_TANK_DISPLAY_SH8601
+#ifdef CONFIG_POCKET_TANK_DISPLAY_CO5300
 extern i2c_master_bus_handle_t board_i2c_bus(void);
 #else
 static i2c_master_bus_handle_t board_i2c_bus(void) { return NULL; }
@@ -427,7 +427,7 @@ static void tank_task(void *arg) {
             }
             int64_t t0 = esp_timer_get_time();
             render_tank(&tank, fb[cur], TANK_W);
-            touch_port_poll(&tank);          /* the CST816 is polled, not interrupt-
+            touch_port_poll(&tank);          /* the CST9217 is polled, not interrupt-
                                                 driven: extra samples inside the frame
                                                 keep quick finger taps from slipping
                                                 between 40 ms frame boundaries */

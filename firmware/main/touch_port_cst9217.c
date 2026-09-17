@@ -1,14 +1,14 @@
-/* touch_port_ft3168.c — FT3168 capacitive touch (FT5x06 register family) ->
+/* touch_port_cst9217.c — CST9220 capacitive touch (CST9217 driver) ->
  * tank_touch_hold / tank_touch_tap, with the same gesture timing as the sim's
  * mouse: press+release < 350 ms with < 24 px displacement = tap (fingertips
- * roll and this panel is 322 ppi); held > 300 ms = hold; a drag down from
+ * roll and this panel is 314 ppi); held > 300 ms = hold; a drag down from
  * the top edge = feed at that x; every touched frame streams to
  * tank_touch_drag (a moving stroke wipes algae; a horizontal slash through
  * a canopy trims it). Fish taps hit-test 38 px against the press-time fish
  * snapshot AND the current position - fish move during a tap. While the stats
  * card is up, a tap anywhere on empty glass dismisses it (hunting the same
  * fish again to close it was the old, cumbersome way) and does nothing else.
- * Coordinates are mapped from the portrait panel to the landscape tank. */
+ * Coordinates are mapped from the square panel into the centered tank. */
 #include "touch_port.h"
 #include "board_pins.h"
 #include "tank.h"
@@ -17,8 +17,7 @@
 #include "notice.h"
 #include "audio_port.h"
 #include "progression.h"
-#include "esp_lcd_touch_ft5x06.h"
-#include "esp_lcd_touch_cst816s.h"
+#include "esp_lcd_touch_cst9217.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_timer.h"
 #include "esp_log.h"
@@ -52,21 +51,19 @@ int  touch_port_bias(void) { return s_bias_y; }
 
 void touch_port_set_inverted(bool inverted) { s_inverted = inverted; }
 extern i2c_master_bus_handle_t board_i2c_bus(void);
-extern bool board_is_v2(void);
 
+/* swap_xy + mirror_y: the BSP's flags for its MADCTL 0xA0 panel orientation
+ * (display_port_co5300.c), so reported points land in displayed space. The
+ * driver resets the chip itself (PIN_TP_RST); INT is not used - polled. */
 bool touch_port_init(void) {
     esp_lcd_panel_io_handle_t io;
-    bool v2 = board_is_v2();
-    esp_lcd_panel_io_i2c_config_t io_cfg = v2 ? (esp_lcd_panel_io_i2c_config_t)ESP_LCD_TOUCH_IO_I2C_CST816S_CONFIG()
-                                              : (esp_lcd_panel_io_i2c_config_t)ESP_LCD_TOUCH_IO_I2C_FT5x06_CONFIG();
-    io_cfg.dev_addr = v2 ? I2C_ADDR_CST816 : I2C_ADDR_FT3168; io_cfg.scl_speed_hz = 400000;
+    esp_lcd_panel_io_i2c_config_t io_cfg = ESP_LCD_TOUCH_IO_I2C_CST9217_CONFIG();
+    io_cfg.dev_addr = I2C_ADDR_CST9217; io_cfg.scl_speed_hz = 400000;
     if (esp_lcd_new_panel_io_i2c(board_i2c_bus(), &io_cfg, &io) != ESP_OK) { ESP_LOGW(TAG, "no touch io"); return false; }
-    esp_lcd_touch_config_t tp_cfg = { .x_max = PANEL_W, .y_max = PANEL_H, .rst_gpio_num = -1, .int_gpio_num = -1,
-        .levels = { .reset = 0, .interrupt = 0 }, .flags = { .swap_xy = 0, .mirror_x = 0, .mirror_y = 0 } };
-    esp_err_t err = v2 ? esp_lcd_touch_new_i2c_cst816s(io, &tp_cfg, &s_tp)
-                       : esp_lcd_touch_new_i2c_ft5x06(io, &tp_cfg, &s_tp);
-    if (err != ESP_OK) { ESP_LOGW(TAG, "no %s", v2 ? "CST816" : "FT3168"); return false; }
-    ESP_LOGI(TAG, "%s ready", v2 ? "CST816" : "FT3168");
+    esp_lcd_touch_config_t tp_cfg = { .x_max = PANEL_W, .y_max = PANEL_H, .rst_gpio_num = PIN_TP_RST, .int_gpio_num = -1,
+        .levels = { .reset = 0, .interrupt = 0 }, .flags = { .swap_xy = 1, .mirror_x = 0, .mirror_y = 1 } };
+    if (esp_lcd_touch_new_i2c_cst9217(io, &tp_cfg, &s_tp) != ESP_OK) { ESP_LOGW(TAG, "no CST9217"); return false; }
+    ESP_LOGI(TAG, "CST9217 ready");
     return true;
 }
 
@@ -78,11 +75,18 @@ void touch_port_poll(tank_t *t) {
     uint16_t x[1], y[1], st[1]; uint8_t n = 0;
     esp_lcd_touch_read_data(s_tp);
     bool touched = esp_lcd_touch_get_coordinates(s_tp, x, y, st, &n, 1) && n > 0;
-    /* portrait panel (px,py) -> landscape tank (tx,ty): tx = TANK_W-1-py, ty = px;
-     * flipped screen: mirror both, so downstream gestures live in displayed space */
-    float tx = touched ? (s_inverted ? (float)y[0] : (float)(TANK_W - 1 - y[0])) : s_lx;
-    float ty = touched ? (s_inverted ? (float)(TANK_H - 1 - x[0]) : (float)x[0]) - s_bias_y : s_ly;
-    if (touched && ty < 0) ty = 0;
+    /* square panel (px,py) -> tank (tx,ty): minus the border offset; flipped
+     * screen: mirror both, so downstream gestures live in displayed space. A
+     * finger on the black border clamps to the tank's nearest edge (a drag
+     * down from the top border is still a feed). */
+    float tx = touched ? (float)(x[0] - PANEL_TANK_X0) : s_lx;
+    float ty = touched ? (float)(y[0] - PANEL_TANK_Y0) : s_ly;
+    if (touched && s_inverted) { tx = TANK_W - 1 - tx; ty = TANK_H - 1 - ty; }
+    if (touched) {
+        ty -= s_bias_y;
+        tx = tx < 0 ? 0 : tx > TANK_W - 1 ? TANK_W - 1 : tx;
+        ty = ty < 0 ? 0 : ty > TANK_H - 1 ? TANK_H - 1 : ty;
+    }
     if (touched && !s_down) {
         audio_port_prewarm();                   /* the release's cue plays warm */
         s_press_us = now; s_px = tx; s_py = ty;
@@ -155,7 +159,7 @@ void touch_port_poll(tank_t *t) {
                 s_ms = true; goto released;
             }
             /* fish first; only an empty tap reaches the water. 38 px radius
-               (a fingertip on this 322 ppi panel covers ~60 px) against BOTH
+               (a fingertip on this 314 ppi panel covers ~60 px) against BOTH
                the press-time snapshot and the current position - whichever is
                closer - so a fish that moved mid-tap still registers. */
             int best = -1; float bd = 38 * 38;

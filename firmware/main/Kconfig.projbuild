@@ -1,11 +1,11 @@
 menu "pocket-tank"
-    config POCKET_TANK_DISPLAY_SH8601
-        bool "Drive the Waveshare 1.8in AMOLED (SH8601 / CO5300 over QSPI)"
+    config POCKET_TANK_DISPLAY_CO5300
+        bool "Drive the Waveshare 2.16in AMOLED (CO5300 over QSPI)"
         default n
         help
             Enable for the real board. Off = stub display port (QEMU / compile-only).
-    config POCKET_TANK_TOUCH_FT3168
-        bool "Read the FT3168 capacitive touch (taps / holds)"
+    config POCKET_TANK_TOUCH_CST9217
+        bool "Read the CST9220 capacitive touch (CST9217 driver; taps / holds)"
         default n
     config POCKET_TANK_AUDIO_ES8311
         bool "Play the sound bank through the ES8311 codec + NS4150B amp (I2S)"

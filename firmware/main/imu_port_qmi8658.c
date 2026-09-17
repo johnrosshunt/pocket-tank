@@ -13,8 +13,8 @@
 /* which accel axis is "up" when the tank is held right side up. The boot log
  * prints the live vector ("imu: g=[x y z]") — if the flip is wrong or dead,
  * hold the device upright, read which axis carries ~1 g, and fix these two. */
-#define IMU_UP_AXIS 1        /* 0=X 1=Y 2=Z; calibrated 2026-08-28: upright-in-hand = -Y ~16k */
-#define IMU_UP_SIGN (-1)
+#define IMU_UP_AXIS 1        /* 0=X 1=Y 2=Z. AMOLED-2.16: the schematic's silkscreen puts +Y toward */
+#define IMU_UP_SIGN (+1)     /* the keys (USB down = upright), so upright-in-hand = +Y ~16k (the 1.8 was -Y) */
 
 #define QMI8658_ADDR       0x6B
 #define QMI8658_ADDR_ALT   0x6A

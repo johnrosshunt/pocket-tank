@@ -1,5 +1,6 @@
 /* audio_port_es8311.c - I2S -> ES8311 -> NS4150B -> the 12 mm speaker.
- * See audio_port.h. Pins from resources/ESP32-S3-Touch-AMOLED-1.8.pdf. */
+ * See audio_port.h. Pins from the ESP32-S3-Touch-AMOLED-2.16 schematic
+ * (the same as the 1.8 board's but MCLK, 16 -> 42). */
 #include "audio_port.h"
 #include "audio.h"
 #include "codec_port.h"
@@ -16,7 +17,7 @@
 
 static const char *TAG = "audio";
 
-#define PIN_I2S_MCLK  16
+#define PIN_I2S_MCLK  42
 #define PIN_I2S_BCLK  9
 #define PIN_I2S_WS    45
 #define PIN_I2S_DOUT  8        /* ESP -> codec DSDIN */
