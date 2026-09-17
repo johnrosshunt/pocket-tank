@@ -72,14 +72,14 @@ void touch_port_poll(tank_t *t) {
     int64_t now = esp_timer_get_time();
     if (s_cf && now - s_cf_us > CONFIRM_TIMEOUT_US) touch_port_confirm_answer(-1);   /* nobody answered: keep the tank */
     if (!s_tp) return;
-    uint16_t x[1], y[1], st[1]; uint8_t n = 0;
+    esp_lcd_touch_point_data_t pt[1]; uint8_t n = 0;
     esp_lcd_touch_read_data(s_tp);
-    bool touched = esp_lcd_touch_get_coordinates(s_tp, x, y, st, &n, 1) && n > 0;
+    bool touched = esp_lcd_touch_get_data(s_tp, pt, &n, 1) == ESP_OK && n > 0;   /* get_coordinates goes in esp_lcd_touch 2.0 */
     /* panel (px,py) = tank (tx,ty); flipped screen: mirror both, so downstream
      * gestures live in displayed space. The finger bias can push a point off
      * the glass: clamp it back to the edge. */
-    float tx = touched ? (float)x[0] : s_lx;
-    float ty = touched ? (float)y[0] : s_ly;
+    float tx = touched ? (float)pt[0].x : s_lx;
+    float ty = touched ? (float)pt[0].y : s_ly;
     if (touched && s_inverted) { tx = TANK_W - 1 - tx; ty = TANK_H - 1 - ty; }
     if (touched) {
         ty -= s_bias_y;
