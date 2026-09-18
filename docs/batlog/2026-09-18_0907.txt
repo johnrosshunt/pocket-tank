@@ -1,0 +1,30 @@
+# pocket-tank preflight 2026-09-18_0907 on /dev/cu.usbmodem2101
+I (1516120) batlog: 16 samples (h:mm since the first | SoC | VBAT | bright | state | mA since previous)
+I (1516121) batlog:     0:00 |  94% | 4068 mV |   0 | asleep | bed
+I (1516125) batlog:     8:27 | 100% | 4108 mV | 255 | awake  | boot     -1.4 mA
+I (1516132) batlog:     8:30 | 100% | 4193 mV | 255 | asleep | sleep     0.0 mA
+I (1516139) batlog:     8:30 | 100% | 4134 mV |   0 | asleep | nap       0.0 mA
+I (1516146) batlog:     8:32 | 100% | 4135 mV | 255 | awake  |           0.0 mA
+I (1516153) batlog:     8:39 |  98% | 4015 mV | 255 | asleep | sleep    33.6 mA
+I (1516160) batlog:     8:45 |  97% | 4064 mV |   0 | asleep | nap      23.4 mA
+I (1516167) batlog:     8:45 |  97% | 4064 mV | 255 | awake  | boot
+I (1516173) batlog:     8:48 |  95% | 3977 mV | 153 | asleep | sleep    81.4 mA
+I (1516180) batlog:     8:53 |  94% | 4027 mV |   0 | asleep | nap      23.5 mA
+I (1516187) batlog:     8:53 |  94% | 4027 mV | 153 | awake  |
+I (1516194) batlog:     8:53 |  94% | 3971 mV | 153 | asleep | sleep     0.0 mA
+I (1516201) batlog:     8:53 |  94% | 4033 mV |   0 | asleep | nap       0.0 mA
+I (1516208) batlog:     8:58 |  90% | 4039 mV | 153 | awake  |          97.6 mA
+I (1516215) batlog:     9:03 |  91% | 4134 mV | 153 | awake  |         -24.0 mA
+I (1516222) batlog:     9:08 |  94% | 4186 mV | 153 | awake  |         -72.0 mA
+I (1516229) batlog:   awake:  0.4 h, 0 mAh -> 0 mA average
+I (1516234) batlog:   asleep: 8.8 h, 0.0 mAh -> 0.00 mA average
+I (1516240) batlog:   (SoC is 1% = 2 mAh; short awake windows are coarse, a night is not)
+I (1520214) director: 0 lori   fry   age 0.3h size 0.56 hunger 4.8 energy 0.0 stress 0.0 curiosity 6.3 trust 4.6 ms 133  explore at 289,241
+I (1520216) director: 1 mira   fry   age 0.3h size 0.60 hunger 5.9 energy 0.0 stress 0.0 curiosity 0.0 trust 4.6 ms 111  visit_bubbles at 327,120
+I (1520229) director: pellets 0 | trickle on | ravenous 0 | day idle 71s | veg 0.36 0.36 0.35 | algae cells 4/644 | courting no | arrival -
+I (1520241) director: sand dollars 2 (earned 2) | shop: - | colonies 0 | 0.0 in trimmed
+I (1520249) director: bed 0 fronds (x from 31, pitch 12): 0.36 0.40 0.35 0.39 0.35 0.39 0.35 0.38 0.34 0.38 0.34 0.38 0.33
+I (1520260) director: bed 1 fronds (x from 376, pitch 12): 0.36 0.32 0.36 0.40 0.36
+I (1520267) director: bed 2 fronds (x from 278, pitch 12): 0.37 0.33 0.37 0.33 0.36 0.32 0.36 0.40
+I (1520276) director: nursery bed 0 (a bed >= 0.12) | parked real tank: no (this IS the real tank)
+I (1520284) director: battery 100% on battery, VBAT 4123 mV | brightness 153/255 (level 60%)

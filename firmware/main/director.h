@@ -8,4 +8,5 @@
 void director_init(void);
 void director_poll(tank_t *t);   /* once per frame, from the tank task */
 void device_sleep(int wake_after_s);   /* main.c: the keeper's sleep (0: grace then power-off) or, N > 0, a 5 s grace then deep sleep with an N s timer wake */
+void device_fake_battery(int pct);      /* main.c: the gauge reads pct% on battery for the pill and the low-battery rule (b-roll); < 0 = the real gauge again. Not saved */
 void device_poweroff(void);            /* main.c: save + PMIC cut now */

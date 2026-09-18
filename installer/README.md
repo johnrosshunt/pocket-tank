@@ -65,8 +65,20 @@ its button at that manifest:
 tools/make_installer.py --manifest-url https://mediacutlet.github.io/pocket-tank/manifest.json --out /tmp/site
 ```
 
-and only that `index.html` lives on the site. It fetches the manifest on
-load and shows the version and build date of what it will actually flash,
+and that `index.html` PLUS its `vendor/esp-web-tools-<tag>/` folder live on
+the site - the never-erase patch is in the vendor's dialog bundle. An old
+`vendor/` next to the new manifest erased every install without asking
+(the 09-11 upload, found 2026-09-18), and the host serves `.js` with a
+year's max-age, so the folder name now carries the patched dialog's hash.
+One command builds, uploads over ssh (host `stratobuilds`), purges
+SiteGround's dynamic cache and checks the live URL:
+
+```
+pocket-tank/tools/publish_site_installer.sh
+```
+
+Run it whenever the page, the vendored ESP Web Tools or the patch changes.
+The page fetches the manifest on load and shows the version and build date of what it will actually flash,
 so pushing to the public repo is the whole release step: no upload, no
 cache purge. (Manual failure mode: the Actions run is red - `gh run list
 --repo mediacutlet/pocket-tank`.)

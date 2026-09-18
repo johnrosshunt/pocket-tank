@@ -1,0 +1,21 @@
+# pocket-tank preflight 2026-09-17_0746 on /dev/cu.usbmodem101
+I (499825) batlog: 2 samples (h:mm since the first | SoC | VBAT | bright | state | mA since previous)
+I (499826) batlog:     0:00 |  63% | 3826 mV |   0 | asleep | bed
+I (499830) batlog:     8:28 |  64% | 3967 mV | 153 | awake  | boot     -0.2 mA
+I (499837) batlog:   asleep: 8.5 h, -2.0 mAh -> -0.24 mA average
+I (499842) batlog:   (SoC is 1% = 2 mAh; short awake windows are coarse, a night is not)
+I (503832) director: 0 navi   adult age 14.3h size 1.10 hunger 1.0 energy 4.1 stress 0.0 curiosity 1.9 trust 7.8 ms 73f  explore at 158,262
+I (503834) director: 1 pebble adult age 14.3h size 1.28 hunger 0.8 energy 4.9 stress 0.0 curiosity 10.0 trust 7.8 ms 73f  explore at 115,244
+I (503847) director: 2 bolt   adult age 10.9h size 1.15 hunger 5.9 energy 3.5 stress 0.0 curiosity 6.7 trust 5.5 ms 73b  explore at 371,202
+I (503859) director: 3 kelp   adult age 8.5h size 1.06 hunger 5.1 energy 4.6 stress 0.0 curiosity 6.0 trust 5.0 ms 73f  explore at 293,294
+I (503871) director: pellets 0 | trickle on | ravenous 0 | day idle 54s | veg 0.38 0.24 0.24 | algae cells 0/644 | courting navi+pebble | arrival -
+I (503884) director: sand dollars 190 (earned 460) | shop: plant snail | colonies 98 | 676.4 in trimmed
+I (503893) director: snail at 214,276 heading 90 deg | no target, cell -1 at -1,-1 (film 0) | 0 cells on the glass | 168 grazed so far
+I (503905) director: bed 0 fronds (x from 19, pitch 12): 0.51 0.51 0.50 0.48 0.44 0.42 0.38 0.37 0.33 0.32 0.31 0.28 0.28 0.26 0.25
+I (503917) director: bed 1 fronds (x from 376, pitch 12): 0.23 0.23 0.24 0.24 0.24
+I (503924) director: bed 2 fronds (x from 278, pitch 12): 0.24 0.24 0.24 0.24 0.24 0.24 0.24 0.24
+I (503933) director: bed 3 leaves (x from 41, pitch 14): 0.50 0.48 0.44 0.40
+I (503939) director: plant placed: centre x 62 (the keeper's), depth IN FRONT of the fish
+I (503947) director: castle placed: centre x 232 (the keeper's), BEHIND the grass
+I (503954) director: nursery bed 3 (a bed >= 0.12) | parked real tank: no (this IS the real tank)
+I (503963) director: battery 67% charging, VBAT 3993 mV | brightness 153/255 (level 60%)
