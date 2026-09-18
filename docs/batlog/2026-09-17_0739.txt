@@ -1,0 +1,19 @@
+# pocket-tank preflight 2026-09-17_0739 on /dev/cu.usbmodem101
+I (65531) batlog: 1 samples (h:mm since the first | SoC | VBAT | bright | state | mA since previous)
+I (65531) batlog:     0:00 |  63% | 3826 mV |   0 | asleep | bed
+I (65535) batlog:   (SoC is 1% = 2 mAh; short awake windows are coarse, a night is not)
+I (69575) director: 0 navi   adult age 14.2h size 1.10 hunger 0.1 energy 9.9 stress 6.8 curiosity 5.8 trust 7.8 ms 73f  explore at 180,94
+I (69577) director: 1 pebble adult age 14.2h size 1.28 hunger 5.7 energy 9.3 stress 6.8 curiosity 10.0 trust 7.8 ms 73f  explore at 360,82
+I (69590) director: 2 bolt   adult age 10.7h size 1.15 hunger 10.0 energy 8.3 stress 6.8 curiosity 9.3 trust 5.5 ms 73b  seek_food at 286,36
+I (69602) director: 3 kelp   adult age 8.4h size 1.06 hunger 10.0 energy 9.5 stress 6.5 curiosity 2.2 trust 5.0 ms 73f  explore at 317,49
+I (69614) director: pellets 0 | trickle on | ravenous 1 | day idle 0s | veg 1.00 0.66 0.64 | algae cells 68/644 | courting navi+pebble | arrival -
+I (69627) director: sand dollars 140 (earned 410) | shop: plant snail | colonies 77 | 435.7 in trimmed
+I (69636) director: snail at 120,248 heading 180 deg | after cell 426 at 104,248 (film 56) | 68 cells on the glass | 162 grazed so far
+I (69648) director: bed 0 fronds (x from 19, pitch 12): 1.00 1.00 1.00 1.00 1.00 1.00 1.00 1.00 1.00 1.00 1.00 1.00 1.00 1.00 1.00
+I (69659) director: bed 1 fronds (x from 376, pitch 12): 0.66 0.66 0.66 0.67 0.67
+I (69667) director: bed 2 fronds (x from 278, pitch 12): 0.65 0.65 0.65 0.63 0.63 0.64 0.65 0.65
+I (69675) director: bed 3 leaves (x from 41, pitch 14): 1.00 1.00 1.00 1.00
+I (69682) director: plant placed: centre x 62 (the keeper's), depth IN FRONT of the fish
+I (69689) director: castle placed: centre x 232 (the keeper's), BEHIND the grass
+I (69697) director: nursery bed 0 (a bed >= 0.12) | parked real tank: no (this IS the real tank)
+I (69705) director: battery 62% charging, VBAT 3935 mV | brightness 153/255 (level 60%)

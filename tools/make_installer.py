@@ -14,7 +14,7 @@ bundle into ONE static folder that any HTTPS host can serve as-is:
         manifest-erase.json the same parts behind the "start over" button:
                             ESP Web Tools' erase question first
         firmware/*.bin      bootloader, partition table, app, model
-        vendor/esp-web-tools/*.js   the flasher (Apache-2.0, vendored so the
+        vendor/esp-web-tools-<tag>/*.js   the flasher (Apache-2.0, vendored so the
                                     page has no third-party runtime deps;
                                     the install dialog gets the one-line
                                     never_erase patch below at assembly)
@@ -29,7 +29,7 @@ layout change can't silently ship a stale offset.
 
 Web Serial needs a secure context: serve the folder over HTTPS (or from
 http://localhost for a local check: `python3 -m http.server -d installer/dist`)."""
-import argparse, datetime, json, os, shutil, subprocess, sys
+import argparse, datetime, hashlib, json, os, shutil, subprocess, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_BUILD = os.path.expanduser("~/.cache/pocket-tank/fw-build")
@@ -58,8 +58,9 @@ def patch_dialog(vendor_dir):
     if n != 2:
         sys.exit(f"{path}: the erase click handler occurs {n} times, expected 2 - ESP Web Tools "
                  "changed; re-check the never_erase patch before shipping the installer")
-    open(path, "w").write(js.replace(DIALOG_ERASE_CLICK, DIALOG_NEVER_ERASE))
-    return names[0]
+    js = js.replace(DIALOG_ERASE_CLICK, DIALOG_NEVER_ERASE)
+    open(path, "w").write(js)
+    return names[0], hashlib.sha1(js.encode()).hexdigest()[:8]
 
 
 def model_offset():
@@ -120,7 +121,14 @@ def main():
         shutil.copyfile(src, os.path.join(out, "firmware", pub))
         total += os.path.getsize(src)
     shutil.copytree(os.path.join(ROOT, "installer", "vendor"), os.path.join(out, "vendor"))
-    dialog = patch_dialog(os.path.join(out, "vendor", "esp-web-tools"))
+    dialog, tag = patch_dialog(os.path.join(out, "vendor", "esp-web-tools"))
+    # The bundle's file names are content hashes of the PRISTINE vendor, and
+    # hosts serve .js with a year's max-age: a patched dialog under the old
+    # path stays the old, erasing one in every CDN and browser cache (it
+    # happened, 2026-09-18). So the folder carries the patched dialog's hash -
+    # the imports inside are relative, a new folder is a new URL for all of it.
+    vendor = f"vendor/esp-web-tools-{tag}"
+    os.rename(os.path.join(out, "vendor", "esp-web-tools"), os.path.join(out, vendor))
 
     build = {"chipFamily": "ESP32-S3",
              "parts": [{"path": f"firmware/{pub}", "offset": off} for off, _, pub in parts]}
@@ -138,21 +146,26 @@ def main():
     del erase["never_erase"]                 # the "start over" button: the dialog asks, checkbox off by default
     json.dump(erase, open(os.path.join(out, "manifest-erase.json"), "w"), indent=2)
     # Apache / LiteSpeed hosts sometimes refuse .bin or serve .json as text;
-    # harmless elsewhere
+    # harmless elsewhere. The page itself must never come out of a host's
+    # page cache: it names the vendor folder, and a stale page is a stale
+    # (once: erasing) dialog.
     open(os.path.join(out, ".htaccess"), "w").write(
         "AddType application/octet-stream .bin\nAddType application/json .json\n"
-        "AddType text/javascript .js\n")
+        "AddType text/javascript .js\n"
+        "<IfModule mod_headers>\n<FilesMatch \"\\.html$\">\n"
+        "Header set Cache-Control \"no-cache, must-revalidate\"\n</FilesMatch>\n</IfModule>\n")
 
     page = open(os.path.join(ROOT, "installer", "index.html")).read()
     page = page.replace("{{VERSION}}", version).replace("{{DATE}}", date)
     page = page.replace("{{TOTAL_MB}}", f"{total / 1e6:.1f}")
+    page = page.replace("{{VENDOR}}", vendor)
     page = page.replace("{{MANIFEST}}", a.manifest_url)
     page = page.replace("{{MANIFEST_ERASE}}", a.manifest_url.replace("manifest.json", "manifest-erase.json"))
     open(os.path.join(out, "index.html"), "w").write(page)
     open(os.path.join(out, ".nojekyll"), "w").close()   # GitHub Pages: serve the folder as-is
 
     print(f"installer -> {out}  (version {version}, {date}; manifest {a.manifest_url}; "
-          f"never_erase patch in {dialog})")
+          f"never_erase patch in {vendor}/{dialog})")
     for off, src, pub in parts:
         print(f"  0x{off:06x}  {os.path.getsize(src):>9,} B  {pub}")
     print(f"  {total:,} B to flash")

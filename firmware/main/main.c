@@ -331,11 +331,14 @@ static void on_tank_event(int ev, int fish, void *ud) {
  * read above 10% for 30 s */
 #define LOW_BATTERY_FRAC 0.10f
 static float s_bat_frac; static bool s_bat_chg, s_bat_ok, s_bat_low;
+static int s_bat_fake = -1;                 /* director `battery N`: a staged gauge, for the camera (-1 = the real one) */
+void device_fake_battery(int pct) { s_bat_fake = pct < 0 ? -1 : pct > 100 ? 100 : pct; if (pct < 0) s_bat_low = false; }
 static void battery_frame(int64_t now) {
     static int64_t bat_us, above_since;
     if (now - bat_us < 1000000) return;
     bat_us = now;
     s_bat_ok = battery_port_read(&s_bat_frac, &s_bat_chg);
+    if (s_bat_fake >= 0) { s_bat_ok = true; s_bat_frac = s_bat_fake / 100.0f; s_bat_chg = false; }   /* staged: on battery at that level, whatever the cable says */
     if (!s_bat_ok) return;
     if (!s_bat_low) {
         if (!s_bat_chg && s_bat_frac <= LOW_BATTERY_FRAC) {

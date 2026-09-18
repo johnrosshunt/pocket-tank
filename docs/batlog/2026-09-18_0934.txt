@@ -1,0 +1,41 @@
+# pocket-tank preflight 2026-09-18_0934 on /dev/cu.usbmodem2101
+I (750773) batlog: 27 samples (h:mm since the first | SoC | VBAT | bright | state | mA since previous)
+I (750774) batlog:     0:00 |  94% | 4068 mV |   0 | asleep | bed
+I (750778) batlog:     8:27 | 100% | 4108 mV | 255 | awake  | boot     -1.4 mA
+I (750785) batlog:     8:30 | 100% | 4193 mV | 255 | asleep | sleep     0.0 mA
+I (750792) batlog:     8:30 | 100% | 4134 mV |   0 | asleep | nap       0.0 mA
+I (750799) batlog:     8:32 | 100% | 4135 mV | 255 | awake  |           0.0 mA
+I (750806) batlog:     8:39 |  98% | 4015 mV | 255 | asleep | sleep    33.6 mA
+I (750812) batlog:     8:45 |  97% | 4064 mV |   0 | asleep | nap      23.4 mA
+I (750819) batlog:     8:45 |  97% | 4064 mV | 255 | awake  | boot
+I (750826) batlog:     8:48 |  95% | 3977 mV | 153 | asleep | sleep    81.4 mA
+I (750833) batlog:     8:53 |  94% | 4027 mV |   0 | asleep | nap      23.5 mA
+I (750839) batlog:     8:53 |  94% | 4027 mV | 153 | awake  |
+I (750846) batlog:     8:53 |  94% | 3971 mV | 153 | asleep | sleep     0.0 mA
+I (750853) batlog:     8:53 |  94% | 4033 mV |   0 | asleep | nap       0.0 mA
+I (750860) batlog:     8:58 |  90% | 4039 mV | 153 | awake  |          97.6 mA
+I (750866) batlog:     9:03 |  91% | 4134 mV | 153 | awake  |         -24.0 mA
+I (750873) batlog:     9:08 |  94% | 4186 mV | 153 | awake  |         -72.0 mA
+I (750880) batlog:     9:18 |  98% | 4012 mV | 153 | awake  | boot    -47.4 mA
+I (750887) batlog:     9:21 |  96% | 3992 mV | 153 | asleep | sleep    87.3 mA
+I (750894) batlog:     9:23 |  96% | 4039 mV |   0 | asleep | nap       0.0 mA
+I (750901) batlog:     9:23 |  96% | 3987 mV | 153 | awake  |           0.0 mA
+I (750908) batlog:     9:23 |  95% | 3972 mV | 153 | asleep | sleep   900.0 mA
+I (750915) batlog:     9:23 |  95% | 4043 mV |   0 | asleep | nap       0.0 mA
+I (750922) batlog:     9:24 |  95% | 3970 mV | 153 | asleep | sleep     0.0 mA
+I (750929) batlog:     9:34 | 100% | 4114 mV |   0 | asleep | nap     -58.0 mA
+I (750936) batlog:     9:34 | 100% | 4114 mV | 153 | awake  |
+I (750942) batlog:     9:35 | 100% | 4170 mV | 153 | asleep | sleep     0.0 mA
+I (750949) batlog:     9:35 | 100% | 4175 mV |   0 | asleep | nap       0.0 mA
+I (750956) batlog:   awake:  0.6 h, -2 mAh -> -3 mA average
+I (750961) batlog:   asleep: 9.0 h, -10.0 mAh -> -1.11 mA average
+I (750967) batlog:   (SoC is 1% = 2 mAh; short awake windows are coarse, a night is not)
+I (754828) director: 0 lea    fry   age 0.1h size 0.50 hunger 4.3 energy 1.9 stress 0.0 curiosity 0.0 trust 5.0 ms 131  follow_friend at 242,87
+I (754830) director: 1 julz   fry   age 0.1h size 0.58 hunger 4.8 energy 3.6 stress 0.0 curiosity 4.2 trust 5.0 ms 113  explore at 180,85
+I (754842) director: pellets 0 | trickle on | ravenous 0 | day idle 61s | veg 0.38 0.38 0.37 | algae cells 5/644 | courting no | arrival -
+I (754854) director: sand dollars 2 (earned 2) | shop: - | colonies 0 | 0.0 in trimmed
+I (754862) director: bed 0 fronds (x from 31, pitch 12): 0.37 0.41 0.37 0.41 0.36 0.40 0.36 0.40 0.36 0.39 0.35 0.39 0.35
+I (754873) director: bed 1 fronds (x from 376, pitch 12): 0.38 0.34 0.38 0.41 0.37
+I (754880) director: bed 2 fronds (x from 278, pitch 12): 0.39 0.34 0.38 0.34 0.38 0.34 0.37 0.41
+I (754888) director: nursery bed 0 (a bed >= 0.12) | parked real tank: YES (restore)
+I (754896) director: battery 100% on battery, VBAT 4132 mV | brightness 153/255 (level 60%)

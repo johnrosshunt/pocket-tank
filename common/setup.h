@@ -68,6 +68,16 @@ bool setup_is_place(void);               /* the placement page */
 int  setup_item(void);                   /* the placement page's SD item (-1 = none) */
 int  setup_fish(void);                   /* the fish the current page is about (-1 = none) */
 void setup_cancel(tank_t *t);            /* drop the pages; the save still says pending */
+/* the name page's two REJECTED designs of 2026-09-13, kept to be shown (the
+ * episode 6 shoot; director `kbd`): 1 = the first cut, a 7 x 4 grid of 46 x 34
+ * px keys on a panel with BACK / NEXT under it ("rarely" hittable, DEL kept
+ * landing on NEXT); 2 = the second, 5 x 3 keys of 66 x 74 px over half the
+ * alphabet, a corner key flipping A-M / N-Z, the nav on top (hittable, but the
+ * panel still hid the fish). 0 = the letter wheel, the design that shipped.
+ * Not saved: a boot is always the wheel. */
+enum { SETUP_KBD_WHEEL, SETUP_KBD_GRID, SETUP_KBD_PAGES };
+void setup_set_keyboard(int mode);
+int  setup_keyboard(void);
 int  setup_page(void);                   /* SETUP_PG_* while active */
 /* the finger, every frame (or poll): x,y in tank coordinates, down = touching.
  * A press then release on one element taps it; a press on a letter slot and
@@ -95,6 +105,10 @@ enum { SETUP_PG_PLACE = SETUP_PG_BIRTH_END };
 #define SETUP_HIT_DOWN  4                /* ... previous */
 #define SETUP_HIT_SLOT0 10               /* + 0..FISH_NAME_MAX-1: pick that slot */
 #define SETUP_HIT_BODY0 40               /* + swatch 0..LOOK_N-1 */
+#define SETUP_HIT_KEY0  100              /* legacy keyboards only: + 0..25 = A..Z, + SETUP_KEY_DEL, + SETUP_KEY_PAGE */
+#define SETUP_KEY_DEL   26
+#define SETUP_KEY_PAGE  27
+#define SETUP_KEY_N     28
 #define SETUP_HIT_Z0    60               /* + DECOR_Z_BACK..FRONT: the placement page's layer row */
 
 /* geometry (tank coordinates), shared by the drawing, the hit test and the
@@ -117,6 +131,12 @@ enum { SETUP_PG_PLACE = SETUP_PG_BIRTH_END };
 #define SETUP_TOP_BTN_Y (SETUP_TOP_Y + 24)
 #define SETUP_TOP_BACK_X 32
 #define SETUP_TOP_NEXT_X (TANK_W - 32 - SETUP_TOP_BTN_W)
+/* the PAGES keyboard's top row sits INSIDE its panel, as it did on the 1.8
+ * (its SETUP_TOP_* were panel-relative then; the square tank's are the open
+ * tank's, which would put the row across the panel's top edge) */
+#define SETUP_PANEL_TOP_BTN_Y  (SETUP_Y + 24)
+#define SETUP_PANEL_TOP_BACK_X (SETUP_X + 12)
+#define SETUP_PANEL_TOP_NEXT_X (SETUP_X + SETUP_W - 12 - SETUP_TOP_BTN_W)
 /* the letter wheel: FISH_NAME_MAX slots of a 6x font (30 x 42 px glyphs) at
  * a 44 px pitch across the middle of the tank, chevrons 40 px above and
  * below the active one; a press in the row band picks the nearest slot, the

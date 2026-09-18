@@ -463,6 +463,11 @@ static int selftest_pop(void) {
         setup_hit(SETUP_SLOT_X + 15, SETUP_SLOT_Y - 50) != SETUP_HIT_UP ||
         setup_hit(SETUP_SLOT_X + 15, SETUP_SLOT_Y + SETUP_SLOT_H + 60) != SETUP_HIT_DOWN ||
         setup_hit(SETUP_TOP_NEXT_X + 20, SETUP_TOP_BTN_Y + 20) != SETUP_HIT_NEXT) { printf("FAIL: name page hit-test\n"); return 1; }
+    /* the rejected PAGES keyboard (director `kbd pages`) keeps its top row inside its panel: BACK / NEXT answer there, the keys below */
+    setup_set_keyboard(SETUP_KBD_PAGES);
+    if (setup_hit(SETUP_PANEL_TOP_NEXT_X + 20, SETUP_PANEL_TOP_BTN_Y + 20) != SETUP_HIT_NEXT || setup_hit(SETUP_PANEL_TOP_BACK_X + 20, SETUP_PANEL_TOP_BTN_Y + 20) != SETUP_HIT_BACK ||
+        setup_hit(SETUP_X + SETUP_W / 2, SETUP_Y + 76 + 37) < SETUP_HIT_KEY0) { printf("FAIL: the PAGES keyboard's hit-test\n"); return 1; }
+    setup_set_keyboard(SETUP_KBD_WHEEL);
     for (int i = 0; i < 3; i++) {                     /* B U B by spinning three slots */
         setup_activate(&tank, SETUP_HIT_SLOT0 + i);
         if (setup_slot() != i) { printf("FAIL: slot %d not picked\n", i); return 1; }
@@ -1427,6 +1432,19 @@ static int snapshot(const char *prefix, int seconds) {
         for (int i = 0; i < 300; i++) tank_tick(&tank, 1.0f / 60.0f, advisor_rules);
         render_tank(&tank, fb, TANK_W); render_setup(&tank, fb, TANK_W, 1.0f);
         snprintf(path, sizeof path, "%s_setup_%s.ppm", prefix, pg_name[pg]); write_ppm(path, fb);
+        if (pg == SETUP_PG_NAME_A) {                       /* the two rejected keyboards (setup.h), typed through their own hit tests */
+            for (int kb = SETUP_KBD_GRID; kb <= SETUP_KBD_PAGES; kb++) {
+                setup_set_keyboard(kb);
+                /* the fourth key of the top row: D (setup.c's KG_* / KP_*, from the panel's corner: the square tank's panel is not the 1.8's) */
+                float kx = kb == SETUP_KBD_GRID ? SETUP_X + 17 + 3 * 50 + 23 : SETUP_X + (SETUP_W - 4 * 72 - 66) / 2 + 3 * 72 + 33;
+                float ky = kb == SETUP_KBD_GRID ? SETUP_Y + 116 + 17 : SETUP_Y + 76 + 37;
+                setup_touch(&tank, kx, ky, true); setup_touch(&tank, kx, ky, false);
+                if (strcmp(tank.fish[0].name, "d")) printf("WARNING: keyboard %d typed '%s', not 'd'\n", kb, tank.fish[0].name);
+                render_tank(&tank, fb, TANK_W); render_setup(&tank, fb, TANK_W, 1.0f);
+                snprintf(path, sizeof path, "%s_setup_kbd_%s.ppm", prefix, kb == SETUP_KBD_GRID ? "grid" : "pages"); write_ppm(path, fb);
+            }
+            setup_set_keyboard(SETUP_KBD_WHEEL); tank_set_name(&tank, 0, "BUB");
+        }
         if (pg + 1 < SETUP_PG_N) setup_activate(&tank, SETUP_HIT_NEXT);
     }
     setup_cancel(&tank);
