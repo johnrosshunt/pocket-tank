@@ -15,8 +15,9 @@ void display_port_flush(const uint16_t *fb);
 void display_port_sleep(void);
 /* re-power and re-init the panel after display_port_sleep, without reboot */
 void display_port_wake(void);
-/* true = present the frame rotated 180 degrees (device held upside down) */
-void display_port_set_inverted(bool inverted);
+/* present the frame turned q quarter turns clockwise (rotate.h): 2 = upside
+ * down; 1 and 3 only for a square tank - an odd turn is ignored otherwise */
+void display_port_set_rotation(int q);
 /* panel brightness 0..255 (DCS 0x51; the init sequence starts at 255). Kept
  * across display_port_wake, which re-inits the panel. */
 void    display_port_set_brightness(uint8_t level);

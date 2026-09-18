@@ -13,7 +13,7 @@ int  touch_port_selected(void);   /* tapped fish for the stats card, RENDER_CARD
 bool touch_port_milestones(void);
 void touch_port_show_milestones(bool on);
 void touch_port_dismiss(void);    /* drop the card and the page: a flow (the birth flow) took the glass */
-void touch_port_set_inverted(bool inverted);   /* mirror coords when the screen is flipped */
+void touch_port_set_rotation(int q);          /* the frame's quarter turns (rotate.h): turn the finger back */
 /* reset confirm prompt (render_confirm_reset): opened by main.c's chord -
  * BOOT held, then a finger lands on the glass - or the director's `reset`.
  * While it is up every other gesture is swallowed; a press AND release on

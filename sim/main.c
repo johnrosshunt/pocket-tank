@@ -49,6 +49,7 @@
 #include "audio.h"
 #include "notice.h"
 #include "tank_events.h"
+#include "rotate.h"
 
 static tank_t tank;
 
@@ -97,6 +98,38 @@ static int selftest(void) {
     setup_begin(&tank);
     for (int pg = 0; pg < SETUP_PG_N; pg++) { render_setup(&tank, fb, TANK_W, 1.0f); if (pg + 1 < SETUP_PG_N) setup_activate(&tank, SETUP_HIT_NEXT); }
     setup_cancel(&tank);
+    /* the frame's turns (rotate.h, 2026-09-18): for every turn the tank may
+       take, the device's stripe copy puts each tank pixel exactly where the
+       touch port's inverse says a finger on it lands, and every tank pixel
+       shows once */
+    {
+        static uint16_t src[TANK_W * TANK_H], panel[TANK_W * TANK_H];
+        static uint8_t seen[TANK_W * TANK_H];
+        for (int i = 0; i < TANK_W * TANK_H; i++) src[i] = (uint16_t)((uint32_t)i * 2654435761u >> 13);
+        int turns = 0;
+        for (int q = 0; q < 4; q++) {
+            if (!rotate_allowed(q)) continue;
+            turns++;
+            memset(seen, 0, sizeof seen);
+            for (int y0 = 0; y0 < TANK_H; y0 += 32)                   /* the device's stripes: the last is short when TANK_H is not a multiple */
+                rotate_stripe_be(src, panel + y0 * TANK_W, y0, TANK_H - y0 < 32 ? TANK_H - y0 : 32, q);
+            for (int py = 0; py < TANK_H; py++)
+                for (int px = 0; px < TANK_W; px++) {
+                    int tx, ty; float fx, fy;
+                    rotate_panel_to_tank(q, px, py, &tx, &ty);
+                    rotate_panel_to_tank_f(q, (float)px, (float)py, &fx, &fy);
+                    if (tx < 0 || tx >= TANK_W || ty < 0 || ty >= TANK_H || fx != tx || fy != ty ||
+                        panel[py * TANK_W + px] != __builtin_bswap16(src[ty * TANK_W + tx]) || seen[ty * TANK_W + tx]++) {
+                        printf("FAIL: turn %d: panel %d,%d shows tank %d,%d wrongly\n", q * 90, px, py, tx, ty); return 1; }
+                }
+        }
+        if (ROTATE_QUARTER_OK) {                    /* a quarter clockwise: the tank's top-left corner at the panel's top-right */
+            int tx, ty; rotate_panel_to_tank(1, TANK_W - 1, 0, &tx, &ty);
+            if (tx != 0 || ty != 0) { printf("FAIL: turn 90 is not clockwise\n"); return 1; }
+        }
+        if (turns != (ROTATE_QUARTER_OK ? 4 : 2)) { printf("FAIL: %d turns allowed\n", turns); return 1; }
+        printf("selftest: %d turns (%s tank): every pixel drawn where the finger finds it\n", turns, ROTATE_QUARTER_OK ? "square" : "rectangular");
+    }
     int eaten = 0, distinct = 0;
     for (int i = 0; i < tank.n_fish; i++) eaten += tank.fish[i].eaten;
     printf("selftest: 7200 ticks ok, %u advisor asks, %d player feedings, feed spot %.0f\n",

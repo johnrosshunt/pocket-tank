@@ -4,6 +4,7 @@
 #include "display_port.h"
 #include "board_pins.h"
 #include "tank.h"
+#include "rotate.h"
 #include "driver/spi_master.h"
 #include "driver/i2c_master.h"
 #include "driver/gpio.h"
@@ -29,9 +30,9 @@ static uint8_t s_brightness = 0xFF;             /* what init_cmds' 0x51 sets */
 static uint16_t *s_stripe[2];                   /* PANEL_W x STRIPE_ROWS, DMA-capable; ping-pong */
 static SemaphoreHandle_t s_stripe_free;         /* counts stripe buffers not in DMA flight */
 static i2c_master_bus_handle_t s_i2c;
-static bool s_inverted;                         /* 180-degree flip, done in the copy */
+static int  s_rot;                              /* quarter turns, done in the copy (rotate.h) */
 
-void display_port_set_inverted(bool inverted) { s_inverted = inverted; }
+void display_port_set_rotation(int q) { if (rotate_allowed(q)) s_rot = q & 3; }
 
 static bool on_trans_done(esp_lcd_panel_io_handle_t io, esp_lcd_panel_io_event_data_t *ev, void *ctx) {
     (void)io; (void)ev; (void)ctx;
@@ -139,25 +140,15 @@ void display_port_set_brightness(uint8_t level) {
 }
 uint8_t display_port_brightness(void) { return s_brightness; }
 
-/* fb[y][x] (TANK_W x TANK_H) -> the panel, row for row; flipped, panel
- * (x,y) = fb[TANK_H-1-y][TANK_W-1-x]. Colors are byte-swapped for the panel
- * (big-endian RGB565 over SPI). Two stripe buffers ping-pong so the copy of
- * stripe N+1 overlaps the DMA of stripe N. */
+/* fb[y][x] (TANK_W x TANK_H) -> the panel, turned by s_rot quarter turns
+ * (rotate.h: the stripe copy byte-swaps for the panel too). Two stripe
+ * buffers ping-pong so the copy of stripe N+1 overlaps the DMA of stripe N. */
 void display_port_flush(const uint16_t *fb) {
-    int cur = 0;
+    int cur = 0, q = s_rot;                         /* one turn for the whole frame */
     for (int y0 = 0; y0 < TANK_H; y0 += STRIPE_ROWS) {
         xSemaphoreTake(s_stripe_free, portMAX_DELAY);
         uint16_t *stripe = s_stripe[cur];
-        for (int r = 0; r < STRIPE_ROWS; r++) {
-            uint16_t *dst = stripe + r * TANK_W;
-            if (!s_inverted) {
-                const uint16_t *src = fb + (y0 + r) * TANK_W;
-                for (int x = 0; x < TANK_W; x++) dst[x] = __builtin_bswap16(src[x]);
-            } else {
-                const uint16_t *src = fb + (TANK_H - 1 - y0 - r) * TANK_W + TANK_W - 1;
-                for (int x = 0; x < TANK_W; x++) dst[x] = __builtin_bswap16(src[-x]);
-            }
-        }
+        rotate_stripe_be(fb, stripe, y0, STRIPE_ROWS, q);
         esp_err_t err = esp_lcd_panel_draw_bitmap(s_panel, 0, y0, TANK_W, y0 + STRIPE_ROWS, stripe);
         if (err != ESP_OK) {
             static int logged;

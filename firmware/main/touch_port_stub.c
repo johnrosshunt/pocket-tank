@@ -5,7 +5,7 @@ int  touch_port_selected(void) { return -1; }
 static bool s_ms;
 bool touch_port_milestones(void) { return s_ms; }
 void touch_port_show_milestones(bool on) { s_ms = on; }
-void touch_port_set_inverted(bool inverted) { (void)inverted; }
+void touch_port_set_rotation(int q) { (void)q; }
 /* no glass to tap: the prompt can only be answered by the director */
 static bool s_cf; static int s_cf_ans;
 void touch_port_confirm_open(void) { s_cf = true; s_cf_ans = 0; }
