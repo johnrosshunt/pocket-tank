@@ -12,6 +12,7 @@
 #include "touch_port.h"
 #include "board_pins.h"
 #include "tank.h"
+#include "rotate.h"
 #include "render.h"
 #include "setup.h"
 #include "notice.h"
@@ -39,7 +40,7 @@ static bool s_back;                               /* the settings page's CLOSE j
 static int  s_shop_act;                           /* an UNLOCK / MOVE tapped: the raw tap code, for main (one-shot) */
 static int  s_set_what, s_set_val;                /* a segment tapped: SET_TAP_* + value, for main */
 #define CONFIRM_TIMEOUT_US (20LL * 1000000)
-static bool s_inverted;                           /* screen 180-flipped: mirror into tank space */
+static int  s_rot;                               /* the frame's turn (half turns here: rotate.h), turned back */
 /* Fingers land a little BELOW where the eye aims - the pad rolls onto the
  * glass under the fingertip (phones shift their hit targets down for the
  * same reason; Strato saw it on the swatch rows, 2026-09-13). Reported
@@ -49,7 +50,7 @@ static int s_bias_y = 10;
 void touch_port_set_bias(int px) { s_bias_y = px; }
 int  touch_port_bias(void) { return s_bias_y; }
 
-void touch_port_set_inverted(bool inverted) { s_inverted = inverted; }
+void touch_port_set_rotation(int q) { if (rotate_allowed(q)) s_rot = q & 3; }
 extern i2c_master_bus_handle_t board_i2c_bus(void);
 
 /* swap_xy + mirror_y: the BSP's flags for its MADCTL 0xA0 panel orientation
@@ -75,13 +76,12 @@ void touch_port_poll(tank_t *t) {
     esp_lcd_touch_point_data_t pt[1]; uint8_t n = 0;
     esp_lcd_touch_read_data(s_tp);
     bool touched = esp_lcd_touch_get_data(s_tp, pt, &n, 1) == ESP_OK && n > 0;   /* get_coordinates goes in esp_lcd_touch 2.0 */
-    /* square panel (px,py) -> tank (tx,ty): minus the border offset; flipped
-     * screen: mirror both, so downstream gestures live in displayed space. A
-     * finger on the black border clamps to the tank's nearest edge (a drag
-     * down from the top border is still a feed). */
-    float tx = touched ? (float)(pt[0].x - PANEL_TANK_X0) : s_lx;
-    float ty = touched ? (float)(pt[0].y - PANEL_TANK_Y0) : s_ly;
-    if (touched && s_inverted) { tx = TANK_W - 1 - tx; ty = TANK_H - 1 - ty; }
+    /* square panel (px,py) -> tank (tx,ty): minus the border offset, then the
+     * frame's turn undone (rotate.h), so downstream gestures live in displayed
+     * space. A finger on the black border clamps to the tank's nearest edge
+     * (a drag down from the top border is still a feed). */
+    float tx = s_lx, ty = s_ly;
+    if (touched) rotate_panel_to_tank_f(s_rot, (float)(pt[0].x - PANEL_TANK_X0), (float)(pt[0].y - PANEL_TANK_Y0), &tx, &ty);
     if (touched) {
         ty -= s_bias_y;
         tx = tx < 0 ? 0 : tx > TANK_W - 1 ? TANK_W - 1 : tx;

@@ -1,14 +1,15 @@
-/* imu_port.h — QMI8658 accelerometer -> screen orientation (180-degree flip
- * only, so the landscape tank keeps its aspect ratio either way up). */
+/* imu_port.h — QMI8658 accelerometer -> screen orientation: quarter turns
+ * for a square tank, half turns only for a rectangular one, so it keeps its
+ * aspect ratio whichever way up (rotate.h). */
 #ifndef IMU_PORT_H
 #define IMU_PORT_H
 #include <stdbool.h>
 #include <stdint.h>
 #include "driver/i2c_master.h"
 
-bool imu_port_init(i2c_master_bus_handle_t bus);  /* false = no IMU, never inverted */
+bool imu_port_init(i2c_master_bus_handle_t bus);  /* false = no IMU, never turned */
 void imu_port_poll(int64_t now_us);               /* call every frame; rate-limited inside */
-bool imu_port_inverted(void);                     /* true = device is upside down */
+int  imu_port_rotation(void);                     /* quarter turns clockwise the frame should take: 0..3 */
 /* handling detector (2026-09-15, for the audio port): true while the
  * device has moved within the last IMU_MOTION_HOLD_US - picked up, in a
  * hand, carried. Lying on a table it goes false. */

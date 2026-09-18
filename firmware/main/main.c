@@ -371,9 +371,9 @@ static void tank_task(void *arg) {
         imu_port_poll(now);
         if (imu_port_moving()) audio_port_prewarm();   /* in a hand: the codec stays warm (docs/AUDIO.md) */
         if (imu_port_handled()) tank_handled(&tank);   /* ... and the light stays on (two polls of motion: a bump on the desk is not a pick-up) */
-        bool inv = imu_port_inverted();
-        display_port_set_inverted(inv);   /* per-frame, so a flip lands between flushes */
-        touch_port_set_inverted(inv);
+        int rot = imu_port_rotation();    /* quarter turns: odd ones only for a square tank (rotate.h) */
+        display_port_set_rotation(rot);   /* per-frame, so a turn lands between flushes */
+        touch_port_set_rotation(rot);
         touch_port_poll(&tank);
         director_poll(&tank);
         int ans = touch_port_confirm_take();

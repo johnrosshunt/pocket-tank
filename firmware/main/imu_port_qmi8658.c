@@ -1,10 +1,12 @@
 /* imu_port_qmi8658.c — QMI8658 6-axis IMU (I2C 0x6B, alt 0x6A) as an
  * orientation sensor: accel only at 31.25 Hz, gyro off. Polled ~4x/s from the
- * tank task; the inverted flag flips only after the gravity component along
- * the panel's landscape-vertical axis has clearly (>0.5 g) pointed the other
- * way for 3 consecutive polls, and holds its last state while the device lies
- * flat (no axis dominant), so the screen never flaps on a table. */
+ * tank task. The frame turns (rotate.h: quarter turns for a square tank, half
+ * turns for a rectangular one) only after gravity has clearly pointed down a
+ * new edge of the screen for 3 consecutive polls, and holds its last turn
+ * while the device lies flat (no in-screen axis dominant), so the screen
+ * never flaps on a table. */
 #include "imu_port.h"
+#include "rotate.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -15,6 +17,18 @@
  * hold the device upright, read which axis carries ~1 g, and fix these two. */
 #define IMU_UP_AXIS 1        /* 0=X 1=Y 2=Z. AMOLED-2.16: the schematic's silkscreen puts +Y toward */
 #define IMU_UP_SIGN (+1)     /* the keys (USB down = upright), so upright-in-hand = +Y ~16k (the 1.8 was -Y) */
+/* ... and which is "right" (the quarter turns, square tank only). The same
+ * silkscreen, drawn as seen from the display side, has +X to the right and Z
+ * out of the glass - a right-handed set with the +Y the bench confirmed - so
+ * right-edge-up = +X ~16k. ASSUMED, not yet seen on the bench: if a quarter
+ * turn puts the floor on the ceiling, flip the sign. */
+#define IMU_RIGHT_AXIS 0
+#define IMU_RIGHT_SIGN (+1)
+/* a square tank's quarter turns: the winning in-screen axis must carry 25%
+ * more of gravity than the other, so a device held near 45 degrees keeps its
+ * turn instead of flapping between two (a half-turn-only tank needs none -
+ * it compares the up axis with the other as before) */
+#define QUARTER_MARGIN_PCT 125
 
 #define QMI8658_ADDR       0x6B
 #define QMI8658_ADDR_ALT   0x6A
@@ -41,8 +55,9 @@
 
 static const char *TAG = "imu";
 static i2c_master_dev_handle_t s_dev;
-static bool s_inverted;
-static int s_streak;              /* consecutive polls voting for a flip */
+static int  s_rot;                /* the frame's quarter turns (rotate.h) */
+static int  s_cand = -1;          /* the turn the polls are voting for */
+static int  s_streak;             /* consecutive polls voting for it */
 static int64_t s_next_us;
 static int16_t s_prev[3]; static bool s_have_prev;
 static int64_t s_moved_us; static int s_motion; static int16_t s_last[3];
@@ -104,7 +119,7 @@ void imu_port_poll(int64_t now_us) {
                      (int16_t)(raw[2] | raw[3] << 8),
                      (int16_t)(raw[4] | raw[5] << 8) };
     static int logged;
-    if (logged < 3) { logged++; ESP_LOGI(TAG, "g=[%d %d %d] inverted=%d", a[0], a[1], a[2], (int)s_inverted); }
+    if (logged < 3) { logged++; ESP_LOGI(TAG, "g=[%d %d %d] turned %d deg", a[0], a[1], a[2], s_rot * 90); }
     /* handling: movement since the last poll, railed channels ignored */
     if (s_have_prev) {
         int m = 0;
@@ -123,10 +138,10 @@ void imu_port_poll(int64_t now_us) {
     /* railed axis = a channel latched at full scale. Found 2026-08-31: X and
      * Z pegged at +-32767 while Y tracked reality, with clean comms, clean
      * config readback, soft reset no help - damaged channels on the MEMS die.
-     * Work with what's healthy: the flip only needs the UP axis. A railed
-     * other axis just skips the dominance guard; only a railed UP axis
-     * disables the flip (and we keep nudging the chip with soft resets in
-     * case it is recoverable stiction rather than damage). */
+     * Work with what's healthy: the half turn only needs the UP axis. A
+     * railed right axis skips the dominance guard and the quarter turns; only
+     * a railed UP axis stops the turning (and we keep nudging the chip with
+     * soft resets in case it is recoverable stiction rather than damage). */
 #define RAILED(x) ((x) <= -32000 || (x) >= 32000)
     static int s_bad; static int64_t s_gate; static bool s_warned;
     if (RAILED(a[IMU_UP_AXIS])) {
@@ -138,26 +153,35 @@ void imu_port_poll(int64_t now_us) {
         return;
     }
     s_bad = 0;
-    int v = a[IMU_UP_AXIS] * IMU_UP_SIGN;
-    /* the other IN-SCREEN axis (Z is out of the glass): the up-axis must
-     * carry more of gravity than it, or we are sideways/flat - hold state.
-     * Skipped when that axis is railed - one good axis is enough to flip. */
-    int other = a[IMU_UP_AXIS == 0 ? 1 : 0];
-    if (RAILED(other) && !s_warned) {
+    /* gravity in the screen's plane (Z is out of the glass): u along the
+     * screen's up, r along its right; the accel reads UP, so u > 0 = upright,
+     * r > 0 = the right edge on top (the image turns a quarter clockwise to
+     * stand on the left edge). The axis carrying more of it picks the edge;
+     * neither past FLIP_THRESH (flat) or neither clearly ahead (45 degrees on
+     * a square tank) holds the turn. A rectangular tank never takes an odd
+     * one: sideways it holds, exactly the old half-turn-only flip. */
+    int u = a[IMU_UP_AXIS] * IMU_UP_SIGN, r_raw = a[IMU_RIGHT_AXIS];
+    bool r_ok = !RAILED(r_raw);
+    if (!r_ok && !s_warned) {
         s_warned = true;
-        ESP_LOGW(TAG, "axis %c railed (sensor damage?) - flip runs on the up axis alone",
-                 IMU_UP_AXIS == 0 ? 'Y' : 'X');
+        ESP_LOGW(TAG, "axis %c railed (sensor damage?) - half turns only, on the up axis alone", "XYZ"[IMU_RIGHT_AXIS]);
     }
-    bool dominant = RAILED(other) || (v > 0 ? v : -v) > (other > 0 ? other : -other);
-    bool wants_flip = dominant && (s_inverted ? (v > FLIP_THRESH) : (v < -FLIP_THRESH));
-    s_streak = wants_flip ? s_streak + 1 : 0;      /* flat / sideways: hold state */
+    int r = r_ok ? r_raw * IMU_RIGHT_SIGN : 0;
+    int au = u < 0 ? -u : u, ar = r < 0 ? -r : r;
+    bool quarter = ROTATE_QUARTER_OK && r_ok;
+    int margin = quarter ? QUARTER_MARGIN_PCT : 100;
+    int cand = -1;
+    if (!r_ok || au * 100 > ar * margin)            cand = u > FLIP_THRESH ? 0 : u < -FLIP_THRESH ? 2 : -1;
+    else if (quarter && ar * 100 > au * margin)     cand = r > FLIP_THRESH ? 1 : r < -FLIP_THRESH ? 3 : -1;
+    if (cand >= 0 && cand != s_rot) { s_streak = cand == s_cand ? s_streak + 1 : 1; s_cand = cand; }
+    else s_streak = 0;                              /* flat / sideways / settled: hold the turn */
     if (s_streak >= FLIP_HOLD_POLLS) {
-        s_inverted = !s_inverted; s_streak = 0;
-        ESP_LOGI(TAG, "orientation: %s", s_inverted ? "inverted" : "upright");
+        s_rot = cand; s_streak = 0;
+        ESP_LOGI(TAG, "orientation: turned %d deg (g=[%d %d %d])", s_rot * 90, a[0], a[1], a[2]);
     }
 }
 
-bool imu_port_inverted(void) { return s_inverted; }
+int imu_port_rotation(void) { return s_rot; }
 void imu_port_last(int16_t out[3], int *motion) { for (int i = 0; i < 3; i++) out[i] = s_last[i]; if (motion) *motion = s_motion; }
 bool imu_port_handled(void) { return s_handled_us && esp_timer_get_time() - s_handled_us < IMU_MOTION_HOLD_US; }
 bool imu_port_moving(void) { return s_moved_us && esp_timer_get_time() - s_moved_us < IMU_MOTION_HOLD_US; }
