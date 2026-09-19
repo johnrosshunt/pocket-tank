@@ -1,5 +1,7 @@
 dependencies:
-  idf: ">=5.4"
-  espressif/esp_lcd_sh8601: "^2.0"
-  espressif/esp_lcd_touch_ft5x06: "^1.1"
-  espressif/esp_lcd_touch_cst816s: "^1.0"
+  idf: ">=5.5"
+  espressif/esp_io_expander_pi4ioe5v6408: "^1.0"   # the Tab5's two IO expanders (docs/boards/m5stack-tab5.md)
+  espressif/esp_lcd_st7123: "^1.0"                  # its ST7123 MIPI-DSI panel
+  espressif/esp_lcd_touch_st7123: "^1.0"            # and its touch half (I2C 0x55)
+  espressif/esp_lcd_touch: "^1.2"                   # esp_lcd_touch_get_data
+  espressif/bmi270: "^1.1"                          # the BMI270 IMU (uploads its config file)

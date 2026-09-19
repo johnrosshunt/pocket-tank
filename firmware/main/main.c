@@ -39,6 +39,7 @@
 #include "rtc_port.h"
 #include "driver/i2c_master.h"
 #include "esp_async_memcpy.h"
+#include "soc/soc_caps.h"
 #include "freertos/semphr.h"
 #include "driver/gpio.h"
 #include "esp_sleep.h"
@@ -52,11 +53,7 @@
  * be the one key the keeper ever presses - press to sleep, press to wake. */
 #define BTN_SLEEP GPIO_NUM_0
 static bool s_pmic;                        /* an AXP2101 answered: the PWR key exists, power-off is real */
-#ifdef CONFIG_POCKET_TANK_DISPLAY_SH8601
-extern i2c_master_bus_handle_t board_i2c_bus(void);
-#else
-static i2c_master_bus_handle_t board_i2c_bus(void) { return NULL; }
-#endif
+#include "board_tab5.h"                   /* the Tab5's I2C bus + expanders (docs/boards/m5stack-tab5.md) */
 
 /* tokenizer.bin is tiny: embed it in the app image */
 extern const uint8_t tokenizer_bin_start[] asm("_binary_tokenizer_bin_start");
@@ -65,7 +62,8 @@ extern const uint8_t tokenizer_bin_end[]   asm("_binary_tokenizer_bin_end");
 static const char *TAG = "pocket-tank";
 static tank_t tank;
 static uint16_t *fb[PLAN_FB_COUNT];
-static bool llm_ok = false;
+static bool llm_ok = false, llm_loaded = false;
+bool main_set_llm(bool on) { llm_ok = on && llm_loaded; return llm_ok; }
 
 /* GDMA prefetch of the static scene into the idle framebuffer: overlaps the
  * 320 KB scene restore with tank logic + the frame sleep instead of a CPU
@@ -232,13 +230,15 @@ static void enter_sleep(void) { enter_sleep_for(0); }
    kept them driven, the first deep-sleep build left them neither, and the
    board around the chip drew ~15 mA all night (2026-09-15/16). */
 static void deep_sleep_now(int wake_after_s) {
-    ESP_LOGI(TAG, "deep sleep (BOOT wakes%s)", wake_after_s > 0 ? ", or the timer" : "");
-    rtc_gpio_pullup_en(BTN_SLEEP); rtc_gpio_pulldown_dis(BTN_SLEEP);
-    esp_sleep_enable_ext0_wakeup(BTN_SLEEP, 0);
+    ESP_LOGI(TAG, "deep sleep (%s)", wake_after_s > 0 ? "the timer wakes it" : "nothing wakes it until the power phase - reset or power-cycle");
+    /* Tab5 (port phase 1): the P4 has no ext0 wake, and its BOOT button
+       (GPIO 35) is not a deep-sleep wake pin - only the timer wakes it here
+       until the power phase maps the PMS150G power key
+       (docs/boards/m5stack-tab5.md) */
     if (wake_after_s > 0) esp_sleep_enable_timer_wakeup((int64_t)wake_after_s * 1000000);
     audio_port_deep_sleep_pins();
-    gpio_deep_sleep_hold_en();
-    ESP_LOGI(TAG, "digital pads held + isolated");
+    /* the P4 powers its digital pads down in deep sleep: no all-pad hold
+       (gpio_deep_sleep_hold_en) to take - the power phase revisits the pads */
     esp_deep_sleep_start();
 }
 void device_sleep(int wake_after_s) { enter_sleep_for(wake_after_s); }   /* director `deepsleep N` */
@@ -469,6 +469,9 @@ static void tank_task(void *arg) {
             if (s_amc && scene && next && next != fb[cur] &&
                 esp_async_memcpy(s_amc, next, (void *)scene, PLAN_FB_BYTES, amc_cb, NULL) == ESP_OK) {
                 s_prefetch_fb = next; s_prefetch_pending = true;
+            } else if (s_amc && scene && next && next != fb[cur]) {
+                static bool warned;
+                if (!warned) { warned = true; ESP_LOGW(TAG, "scene prefetch refused (DMA alignment?): the CPU restores the scene"); }
             }
         }
         cur ^= 1;
@@ -523,19 +526,18 @@ void app_main(void) {
     gpio_config_t btn = { .pin_bit_mask = 1ULL << BTN_SLEEP, .mode = GPIO_MODE_INPUT,
                           .pull_up_en = GPIO_PULLUP_ENABLE };
     gpio_config(&btn);
-    gpio_deep_sleep_hold_dis();              /* a deep-sleep wake is a boot: the night's pad holds end here */
     if (nvs_flash_init() != ESP_OK) { nvs_flash_erase(); nvs_flash_init(); }
     { int carried = batlog_init();       /* the battery log survives every reset but a power-on */
       if (carried) ESP_LOGI(TAG, "batlog: %d samples carried through the reset (director `batlog` reads them)", carried); }
     brightness_init();
     assert_plan();
     for (int i = 0; i < PLAN_FB_COUNT; i++) {
-        fb[i] = heap_caps_aligned_alloc(64, PLAN_FB_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        fb[i] = heap_caps_aligned_alloc(128, PLAN_FB_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);   /* 128: the P4's L2 line (AXI DMA) */
         if (!fb[i]) fb[i] = i ? fb[0] : NULL;          /* no PSRAM: share or skip */
     }
     if (!fb[0]) ESP_LOGW(TAG, "no framebuffer RAM: rendering disabled (tank still runs)");
     /* static-scene cache: gradient/pebbles/reef drawn once per lighting state */
-    uint16_t *scene = heap_caps_aligned_alloc(64, PLAN_FB_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    uint16_t *scene = heap_caps_aligned_alloc(128, PLAN_FB_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (scene) render_set_scene_cache(scene); else ESP_LOGW(TAG, "no scene cache RAM: full redraw per frame");
     uint8_t *vig = heap_caps_malloc(TANK_W * TANK_H, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (vig) render_set_vignette_cache(vig);
@@ -560,10 +562,12 @@ void app_main(void) {
         if (esp_partition_mmap(mp, 0, mp->size, ESP_PARTITION_MMAP_DATA, &map, &h) == ESP_OK) {
             llm_ok = advisor_llm_esp_init(map, mp->size, tokenizer_bin_start,
                                           tokenizer_bin_end - tokenizer_bin_start);
+            llm_loaded = llm_ok;
             ESP_LOGI(TAG, "model partition %u KB mmap'd, advisor %s", (unsigned)mp->size / 1024, llm_ok ? "LLM" : "rules (model missing)");
         } else ESP_LOGE(TAG, "model mmap failed");
     }
     render_clock_us = esp_timer_get_time;    /* per-stage frame profiling in the display log */
+    board_init();                     /* I2C bus + expanders + the bus scan, before anything asks for the bus */
     display_port_init();
     touch_port_init();
     s_pmic = battery_port_init(board_i2c_bus());
@@ -581,7 +585,13 @@ void app_main(void) {
         async_memcpy_config_t amc_cfg = ASYNC_MEMCPY_DEFAULT_CONFIG();
         amc_cfg.backlog = 4; amc_cfg.sram_trans_align = 4; amc_cfg.psram_trans_align = 64;
         s_amc_done = xSemaphoreCreateBinary();
+#if SOC_AXI_GDMA_SUPPORTED
+        /* the P4: the AXI DMA. The default (AHB) DMA crawls through PSRAM -
+           6.6 MB/s on the Tab5, a 68 ms wait per frame (bench 2026-09-18) */
+        if (esp_async_memcpy_install_gdma_axi(&amc_cfg, &s_amc) != ESP_OK) {
+#else
         if (esp_async_memcpy_install(&amc_cfg, &s_amc) != ESP_OK) {
+#endif
             s_amc = NULL; ESP_LOGW(TAG, "async memcpy unavailable: CPU scene restore");
         }
     }

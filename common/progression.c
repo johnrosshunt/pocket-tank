@@ -20,6 +20,14 @@ const char *const TMS_NAMES[TMS_COUNT] = {
     "first trimming", "first glass cleaning",
 };
 
+/* the world every save was written in until the Tab5 port (2026-09-18): the
+ * AMOLED-1.8's 448 x 368, its glass film a 28 x 23 grid. The save keeps that
+ * grid's bytes where they always were (fields only ever append) and the
+ * Tab5 world's film rides in its own tail. */
+#define SAVE_LEGACY_W 448
+#define SAVE_LEGACY_H 368
+#define SAVE_LEGACY_ALGAE_CELLS ((SAVE_LEGACY_W / ALGAE_CELL) * (SAVE_LEGACY_H / ALGAE_CELL))
+
 typedef struct {
     uint8_t preset, stage; uint16_t pad;
     float size, trust, bold, sociable, bold0, sociable0, hunger, energy, stress, curiosity;
@@ -44,7 +52,7 @@ typedef struct {
      * growth - the floor is VEG_NUB - so restore treats it as "keep the
      * fresh-tank default"). ---- */
     float    veg_growth[VEG_BEDS];
-    uint8_t  algae[ALGAE_CELLS];
+    uint8_t  algae[SAVE_LEGACY_ALGAE_CELLS];   /* the 448 x 368 world's film; the Tab5 world writes zeros */
     int32_t  trims, cells_cleaned;
     /* per-frond heights (2026-09-04); an older save (no tail, or zeros)
      * seeds every frond from its bed's veg_growth */
@@ -95,6 +103,13 @@ typedef struct {
      * layer + 1 (0 = FRONT, an older save or one that never placed it) */
     float    castle_x;
     uint8_t  castle_z1, pad_castle[3];
+    /* the world tail (2026-09-18, the Tab5's 640 x 360): the world the
+     * positions above were written in, and the glass film on this world's
+     * grid. An older save reads zeros - a 448 x 368 save: load_save moves its
+     * spots (the bubble column, the feed spot, the snail, the plant, the
+     * castle) with the glass and spreads its film over the new grid. */
+    uint16_t world_w, world_h;
+    uint8_t  algae_w[ALGAE_CELLS];
 } save_t;
 /* the smallest PTK2 save (pre-upkeep, 2026-08-30): anything shorter is not
  * ours. Every later build wrote sizeof(save_t) of its day - 448, 1112, 1304,
@@ -498,6 +513,27 @@ static bool load_save(tank_t *t, int64_t *saved_unix) {
     }
     s_setup_pending = sv.setup_pending != 0;
     s_newborn = sv.newborn_p1 && sv.newborn_p1 <= sv.n_fish ? sv.newborn_p1 - 1 : -1;
+    /* the world the save was written in: this one, or the 448 x 368 tank */
+    bool here = got >= offsetof(save_t, algae_w) + sizeof sv.algae_w && sv.world_w == TANK_W && sv.world_h == TANK_H;
+    if (!here) {
+        const float kx = (float)TANK_W / SAVE_LEGACY_W, ky = (float)TANK_H / SAVE_LEGACY_H;
+        if (sv.bubble_x > 0) sv.bubble_x *= kx;
+        if (sv.feed_spot_x >= 0) sv.feed_spot_x *= kx;
+        if (sv.plant_x > 0) sv.plant_x *= kx;
+        if (sv.castle_x > 0) sv.castle_x *= kx;
+        if (sv.snail_x > 0) {                          /* a snail on the floor stays on the floor */
+            sv.snail_x *= kx;
+            sv.snail_y = sv.snail_y >= SAVE_LEGACY_H - 24.0f - 1 ? SNAIL_FLOOR_Y : sv.snail_y * ky;
+        }
+        const int lc = SAVE_LEGACY_W / ALGAE_CELL, lr = SAVE_LEGACY_H / ALGAE_CELL;
+        for (int cy = 0; cy < ALGAE_ROWS; cy++)        /* each new cell takes the old cell under its centre */
+            for (int cx = 0; cx < ALGAE_COLS; cx++) {
+                int ox = (int)((cx + 0.5f) * ALGAE_CELL / kx) / ALGAE_CELL, oy = (int)((cy + 0.5f) * ALGAE_CELL / ky) / ALGAE_CELL;
+                if (ox >= lc) ox = lc - 1;
+                if (oy >= lr) oy = lr - 1;
+                sv.algae_w[cy * ALGAE_COLS + cx] = sv.algae[oy * lc + ox];
+            }
+    }
     if (sv.bubble_x > 0) tank_set_bubble_x(t, sv.bubble_x);
     t->light_idle_s = sv.light_idle_s ? sv.light_idle_s : LIGHT_IDLE_S;
     t->light_auto = sv.light_auto != 0;
@@ -513,7 +549,7 @@ static bool load_save(tank_t *t, int64_t *saved_unix) {
         else if (sv.veg_growth[b] > 0) tank_veg_set(t, b, sv.veg_growth[b]);
     }
     tank_veg_sync(t);
-    memcpy(t->algae, sv.algae, ALGAE_CELLS);
+    memcpy(t->algae, sv.algae_w, ALGAE_CELLS);
     t->trims = sv.trims; t->cells_cleaned = sv.cells_cleaned;
     /* the sand dollar tail (zeros for an older save: the ledger back-pays) */
     t->sd_balance = sv.sd_balance; t->sd_earned = sv.sd_earned; t->sd_unlocks = sv.sd_unlocks & ((1u << SD_ITEM_COUNT) - 1);
@@ -696,7 +732,8 @@ void progression_save(tank_t *t) {
         sv.veg_growth[b] = t->veg_growth[b];
         for (int i = 0; i < VEG_FRONDS_MAX; i++) sv.veg_h[b][i] = t->veg_h[b][i];
     }
-    memcpy(sv.algae, t->algae, ALGAE_CELLS);
+    sv.world_w = TANK_W; sv.world_h = TANK_H;
+    memcpy(sv.algae_w, t->algae, ALGAE_CELLS);
     sv.trims = t->trims; sv.cells_cleaned = t->cells_cleaned;
     sv.sd_balance = t->sd_balance; sv.sd_earned = t->sd_earned; sv.sd_unlocks = t->sd_unlocks;
     for (int i = 0; i < N_FISH_MAX; i++) sv.sd_paid_fish[i] = t->sd_paid_fish[i];

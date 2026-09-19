@@ -11,11 +11,11 @@
 
 #include <stdint.h>
 
-#define PLAN_FB_W            448
-#define PLAN_FB_H            368
-#define PLAN_FB_BYTES        (PLAN_FB_W * PLAN_FB_H * 2)          /* 329,728 */
+#define PLAN_FB_W            640                                  /* the Tab5's tank, shown 2x (docs/boards/m5stack-tab5.md) */
+#define PLAN_FB_H            360
+#define PLAN_FB_BYTES        (PLAN_FB_W * PLAN_FB_H * 2)          /* 460,800 */
 #define PLAN_FB_COUNT        2                                    /* double buffer */
-#define PLAN_FB_TOTAL        (PLAN_FB_BYTES * PLAN_FB_COUNT)      /* 659,456 */
+#define PLAN_FB_TOTAL        (PLAN_FB_BYTES * PLAN_FB_COUNT)      /* 921,600 (the panel's own two 1.8 MB buffers come on top) */
 
 /* model: dim 384, 8 layers, 8 heads, seq 64 (word tokens) */
 #define PLAN_MODEL_DIM       384

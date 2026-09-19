@@ -374,7 +374,7 @@ static void veg_bed_base(const tank_t *t, int b, float *bx0, int *n) {
     else             { *bx0 = tank_decor_x(t, 0) - PLANT_HALF_W; *n = 4; return; }   /* the sword plant
                                                               (2026-09-15): four broad leaves, by default on
                                                               the open floor between the reef bed's widest
-                                                              reach (~199) and bed 2 (272) - the keeper's
+                                                              reach (~228) and bed 2 (397) - the keeper's
                                                               to move (tank_decor_set) */
     /* the frond count is fixed per bed now (it used to widen with growth):
        with fronds cut one at a time, a bed's outer fronds can't be allowed

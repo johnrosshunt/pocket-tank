@@ -115,7 +115,7 @@ enum { SETUP_PG_PLACE = SETUP_PG_BIRTH_END };
  * sim's selftest. The panelled pages (welcome, colours, care) sit inside the
  * bezel curve (x 32..416, y 16..342); the name page draws straight on the
  * tank. */
-#define SETUP_X 32
+#define SETUP_X (UI_X0 + 32)                        /* the 1.8's panel, centred (render.h UI_X0) */
 #define SETUP_Y 16
 #define SETUP_W 384
 #define SETUP_H 326

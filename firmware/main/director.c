@@ -168,7 +168,8 @@ static void help(void) {
     ESP_LOGI(TAG, "setup [off] (the first-run flow: welcome, names, colours; off drops the panel - the birth flow too) | name <fish|idx> <newname> (up to %d letters, saved)", FISH_NAME_MAX);
     ESP_LOGI(TAG, "battery <pct>|real (a STAGED gauge, as if on battery at pct: the card's pill, and at 10 or less the low-battery notice + cue + the pill that stays; not saved) | snd battery (just the notice + cue)");
     ESP_LOGI(TAG, "kbd [wheel|grid|pages] (the name page's design: the wheel, or one of the two rejected keyboards of 09-13 - not saved, a boot is the wheel)");
-    ESP_LOGI(TAG, "touch [bias <px>] (finger-landing correction: reported touches move up by px; not saved)");
+    ESP_LOGI(TAG, "disp (display settings) | disp bl <hz>|steady|pwm (Tab5: the backlight PWM frequency, live; steady = no PWM)");
+    ESP_LOGI(TAG, "touch [bias <px>] (finger-landing correction: reported touches move up by px; not saved) | touch log on|off | touch poll [int|always|off]");
     ESP_LOGI(TAG, "pmic (AXP2101 dump) | pmic on|off <aldo1|aldo2..4|bldo1|bldo2|cpusldo|dcdc2..5|dldo1|dldo2> (experiments; boot trims the unused ones) | pmic trim");
     ESP_LOGI(TAG, "bright <0-255> (panel now; not saved) | level 100|60|30 (the keeper's setting, saved)");
     ESP_LOGI(TAG, "batlog [clear] (the tank's own battery log: SoC/VBAT every 5 min awake, 30 min asleep, mA derived - read it after a night on battery) | codec (ES8311 registers) | deepsleep [N] (N: 5 s grace then deep sleep with an N s timer wake - one batlog window per N, BOOT wakes it; no N: the keeper's sleep, grace then power-off) | poweroff (save + PMIC cut now) | keytime [N] (N s of timing every PWR press - is a tap under the PMIC's 128 ms power-on hold?)");
@@ -342,7 +343,19 @@ static void run(tank_t *t, char *line) {
         if (argc > 1) setup_set_keyboard(!strcmp(argv[1], "grid") ? SETUP_KBD_GRID : !strcmp(argv[1], "pages") ? SETUP_KBD_PAGES : SETUP_KBD_WHEEL);
         ESP_LOGI(TAG, "name page: %s", setup_keyboard() == SETUP_KBD_GRID ? "GRID (the first cut: 7 x 4 keys on a panel)" :
                  setup_keyboard() == SETUP_KBD_PAGES ? "PAGES (the second: half the alphabet, big keys)" : "the letter wheel");
+    } else if (!strcmp(c, "disp")) {                 /* the board's display settings (Tab5: the backlight PWM, live) */
+        display_port_director(argc, argv);
+    } else if (!strcmp(c, "llm") && argc > 1) {      /* llm on|off: the model advisor or the rules (bench diagnosis; not saved) */
+        bool on = strcmp(argv[1], "off") != 0;
+        ESP_LOGI(TAG, "advisor: %s", main_set_llm(on) ? "LLM" : on ? "rules (no model)" : "rules");
     } else if (!strcmp(c, "touch")) {
+        if (argc > 1 && !strcmp(argv[1], "poll")) {  /* touch poll [int|always|off]: when the controller is read */
+            if (argc > 2) touch_port_set_polling(!strcmp(argv[2], "off") ? TOUCH_POLL_OFF : !strcmp(argv[2], "always") ? TOUCH_POLL_ALWAYS : TOUCH_POLL_INT);
+            uint32_t r, e; touch_port_poll_stats(&r, &e);
+            ESP_LOGI(TAG, "touch poll%s%s: %lu reads, %lu INT edges since boot", argc > 2 ? " " : "", argc > 2 ? argv[2] : "", (unsigned long)r, (unsigned long)e);
+            return; }
+        if (argc > 2 && !strcmp(argv[1], "log")) { bool on = strcmp(argv[2], "off") != 0; touch_port_set_log(on);
+                                                    ESP_LOGI(TAG, "touch log %s", on ? "on: every press logs native -> tank" : "off"); return; }
         if (argc > 2 && !strcmp(argv[1], "bias")) touch_port_set_bias(atoi(argv[2]));
         ESP_LOGI(TAG, "touch bias %d px (reported y - %d)", touch_port_bias(), touch_port_bias());
     } else if (!strcmp(c, "name") && argc > 2) {

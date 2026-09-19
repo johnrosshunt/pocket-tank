@@ -7,6 +7,7 @@
 #include "tank.h"
 
 /* fb is TANK_W x TANK_H, RGB565, stride in PIXELS (usually TANK_W). */
+
 void render_tank(const tank_t *t, uint16_t *fb, int stride);
 
 /* Optional frame profiling: set a microsecond clock and render_tank fills
@@ -144,7 +145,7 @@ void render_sd_toast(const tank_t *t, uint16_t *fb, int stride);
  * render_confirm_hit maps a tap in tank coordinates to a button (+1 YES,
  * -1 NO, 0 neither) so the device's touch port and the sim's mouse share
  * the geometry. */
-#define RENDER_CONFIRM_X     56
+#define RENDER_CONFIRM_X     (UI_X0 + 56)
 #define RENDER_CONFIRM_Y     76
 #define RENDER_CONFIRM_W     336
 #define RENDER_CONFIRM_H     216

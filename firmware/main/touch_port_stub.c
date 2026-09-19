@@ -25,3 +25,6 @@ int  touch_port_take_shop(void) { return 0; }
 void touch_port_dismiss(void) { s_ms = false; }
 void touch_port_set_bias(int px) { (void)px; }
 int  touch_port_bias(void) { return 0; }
+void touch_port_set_log(bool on) { (void)on; }
+void touch_port_set_polling(int mode) { (void)mode; }
+void touch_port_poll_stats(uint32_t *reads, uint32_t *int_edges) { *reads = 0; *int_edges = 0; }

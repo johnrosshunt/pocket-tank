@@ -1,30 +1,26 @@
-/* imu_port_qmi8658.c — QMI8658 6-axis IMU (I2C 0x6B, alt 0x6A) as an
- * orientation sensor: accel only at 31.25 Hz, gyro off. Polled ~4x/s from the
- * tank task; the inverted flag flips only after the gravity component along
- * the panel's landscape-vertical axis has clearly (>0.5 g) pointed the other
- * way for 3 consecutive polls, and holds its last state while the device lies
- * flat (no axis dominant), so the screen never flaps on a table. */
+/* imu_port_tab5.c — the M5Stack Tab5's BMI270 IMU (I2C 0x68; board_tab5.h,
+ * docs/boards/m5stack-tab5.md) as an orientation sensor: accel at 25 Hz,
+ * +-2 g, read through Espressif's espressif/bmi270 driver (it uploads Bosch's
+ * config file) and kept in the QMI8658 port's counts (16384 = 1 g), so the
+ * thresholds below are the 1.8's, bench-tuned. Polled ~4x/s from the tank
+ * task; the inverted flag flips only after the gravity component along the
+ * panel's landscape-vertical axis has clearly pointed the other way for 3
+ * consecutive polls, and holds its last state while the device lies flat
+ * (no axis dominant), so the screen never flaps on a table. */
 #include "imu_port.h"
+#include "board_tab5.h"
+#include "bmi270.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-/* which accel axis is "up" when the tank is held right side up. The boot log
- * prints the live vector ("imu: g=[x y z]") — if the flip is wrong or dead,
- * hold the device upright, read which axis carries ~1 g, and fix these two. */
-#define IMU_UP_AXIS 1        /* 0=X 1=Y 2=Z; calibrated 2026-08-28: upright-in-hand = -Y ~16k */
-#define IMU_UP_SIGN (-1)
-
-#define QMI8658_ADDR       0x6B
-#define QMI8658_ADDR_ALT   0x6A
-#define REG_WHO_AM_I       0x00   /* reads 0x05 */
-#define REG_CTRL1          0x02
-#define REG_CTRL2          0x03
-#define REG_CTRL7          0x08
-#define REG_RESET          0x60   /* write 0xB0 = soft reset */
-#define REG_AX_L           0x35
-#define WHO_AM_I_VAL       0x05
+/* which accel axis is "up" when the tank is held right side up (SD slot at
+ * the bottom): TAB5_IMU_UP_AXIS / TAB5_IMU_UP_SIGN, measured on the bench
+ * (board_tab5.h). Not measured yet (-1): the screen never flips. */
+#define IMU_UP_AXIS TAB5_IMU_UP_AXIS
+#define IMU_UP_SIGN TAB5_IMU_UP_SIGN
+#define IMU_FLIP_ON (TAB5_IMU_UP_AXIS >= 0)
 
 #define POLL_INTERVAL_US   250000
 /* 2026-08-31: was 8192 (0.5 g) - that only fired within ~60 deg of vertical,
@@ -40,69 +36,56 @@
 #define IMU_MOTION_HOLD_US 1000000
 
 static const char *TAG = "imu";
-static i2c_master_dev_handle_t s_dev;
+static bmi270_handle_t *s_dev;
+static i2c_master_bus_handle_t s_bus;
 static bool s_inverted;
-static int s_streak;              /* consecutive polls voting for a flip */
+static int s_streak __attribute__((unused));              /* consecutive polls voting for a flip */
 static int64_t s_next_us;
 static int16_t s_prev[3]; static bool s_have_prev;
 static int64_t s_moved_us; static int s_motion; static int16_t s_last[3];
 static int64_t s_handled_us; static bool s_prev_moved;   /* two polls in a row over the threshold */
 
-static bool wr8(uint8_t reg, uint8_t val) {
-    uint8_t buf[2] = { reg, val };
-    return i2c_master_transmit(s_dev, buf, 2, 100) == ESP_OK;
-}
-static bool rdn(uint8_t reg, uint8_t *val, size_t n) {
-    return i2c_master_transmit_receive(s_dev, &reg, 1, val, n, 100) == ESP_OK;
-}
-
-/* soft reset + full config. The chip sits on an always-on rail, so it keeps
- * whatever state it fell into across reboots and reflashes - 2026-08-31 it
- * was found latched with two axes railed at full scale (garbage that only a
- * reset clears; only a full PMIC power-off ever power-cycles it). Never
- * trust its power-on state. */
+/* create (the driver soft-resets the chip and uploads its config file) +
+ * start. The chip sits on an always-on rail and keeps whatever state it fell
+ * into across reboots (the QMI8658's lesson, 2026-08-31): never trust its
+ * power-on state - every init and every wake starts it from scratch. */
 static bool imu_reset_config(void) {
-    bool rst = wr8(REG_RESET, 0xB0);
-    vTaskDelay(pdMS_TO_TICKS(25));
-    bool ok = wr8(REG_CTRL1, 0x40)   /* address auto-increment for burst reads */
-           && wr8(REG_CTRL2, 0x08)   /* accel +-2g, 31.25 Hz */
-           && wr8(REG_CTRL7, 0x01);  /* accel on, gyro off */
-    uint8_t c1 = 0xEE, c2 = 0xEE, c7 = 0xEE;   /* readback: is it even listening? */
-    rdn(REG_CTRL1, &c1, 1); rdn(REG_CTRL2, &c2, 1); rdn(REG_CTRL7, &c7, 1);
-    ESP_LOGI(TAG, "reset %s, ctrl readback 1=0x%02x 2=0x%02x 7=0x%02x (want 40/08/01)",
-             rst ? "acked" : "NACKED", c1, c2, c7);
-    return ok;
+    if (s_dev) { bmi270_delete(s_dev); s_dev = NULL; }
+    const bmi270_driver_config_t dcfg = { .addr = TAB5_ADDR_BMI270, .interface = BMI270_USE_I2C, .i2c_bus = s_bus };
+    if (bmi270_create(&dcfg, &s_dev) != ESP_OK) { s_dev = NULL; return false; }
+    const bmi270_config_t cfg = { .acce_odr = BMI270_ACC_ODR_25_HZ, .acce_range = BMI270_ACC_RANGE_2_G,
+                                  .gyro_odr = BMI270_GYR_ODR_25_HZ, .gyro_range = BMI270_GYR_RANGE_2000_DPS };
+    if (bmi270_start(s_dev, &cfg) != ESP_OK) { bmi270_delete(s_dev); s_dev = NULL; return false; }
+    return true;
+}
+/* one sample in the QMI8658 port's counts: 16384 = 1 g */
+static bool read_counts(int16_t a[3]) {
+    float g[3];
+    if (bmi270_get_acce_data(s_dev, &g[0], &g[1], &g[2]) != ESP_OK) return false;
+    for (int i = 0; i < 3; i++) {
+        float c = g[i] * 16384.0f;
+        a[i] = (int16_t)(c > 32767 ? 32767 : c < -32768 ? -32768 : c);
+    }
+    return true;
 }
 
 bool imu_port_init(i2c_master_bus_handle_t bus) {
     if (!bus) return false;
-    uint8_t addr = QMI8658_ADDR;
-    if (i2c_master_probe(bus, addr, 50) != ESP_OK) {
-        addr = QMI8658_ADDR_ALT;
-        if (i2c_master_probe(bus, addr, 50) != ESP_OK) { ESP_LOGW(TAG, "no QMI8658"); return false; }
-    }
-    i2c_device_config_t cfg = { .dev_addr_length = I2C_ADDR_BIT_LEN_7,
-                                .device_address = addr, .scl_speed_hz = 400000 };
-    if (i2c_master_bus_add_device(bus, &cfg, &s_dev) != ESP_OK) return false;
-    uint8_t who = 0;
-    if (!rdn(REG_WHO_AM_I, &who, 1) || who != WHO_AM_I_VAL) {
-        ESP_LOGW(TAG, "QMI8658 whoami 0x%02x (want 0x05)", who);
-        s_dev = NULL; return false;
-    }
-    if (!imu_reset_config()) { ESP_LOGW(TAG, "QMI8658 config failed"); s_dev = NULL; return false; }
-    ESP_LOGI(TAG, "QMI8658 up at 0x%02x: orientation axis %c%s", addr,
-             IMU_UP_SIGN > 0 ? '+' : '-', IMU_UP_AXIS == 0 ? "X" : IMU_UP_AXIS == 1 ? "Y" : "Z");
+    if (i2c_master_probe(bus, TAB5_ADDR_BMI270, 50) != ESP_OK) { ESP_LOGW(TAG, "no BMI270 at 0x%02x", TAB5_ADDR_BMI270); return false; }
+    s_bus = bus;
+    if (!imu_reset_config()) { ESP_LOGW(TAG, "BMI270 init failed"); return false; }
+    if (IMU_FLIP_ON) ESP_LOGI(TAG, "BMI270 up at 0x%02x: orientation axis %c%c", TAB5_ADDR_BMI270,
+                              IMU_UP_SIGN > 0 ? '+' : '-', "XYZ"[IMU_FLIP_ON ? IMU_UP_AXIS : 0]);
+    else ESP_LOGW(TAG, "BMI270 up at 0x%02x: its axes are not measured yet (board_tab5.h) - the screen will not flip; "
+                       "director `imu` traces the raw axes", TAB5_ADDR_BMI270);
     return true;
 }
 
 void imu_port_poll(int64_t now_us) {
     if (!s_dev || now_us < s_next_us) return;
     s_next_us = now_us + POLL_INTERVAL_US;
-    uint8_t raw[6];
-    if (!rdn(REG_AX_L, raw, 6)) return;
-    int16_t a[3] = { (int16_t)(raw[0] | raw[1] << 8),
-                     (int16_t)(raw[2] | raw[3] << 8),
-                     (int16_t)(raw[4] | raw[5] << 8) };
+    int16_t a[3];
+    if (!read_counts(a)) return;
     static int logged;
     if (logged < 3) { logged++; ESP_LOGI(TAG, "g=[%d %d %d] inverted=%d", a[0], a[1], a[2], (int)s_inverted); }
     /* handling: movement since the last poll, railed channels ignored */
@@ -128,6 +111,8 @@ void imu_port_poll(int64_t now_us) {
      * disables the flip (and we keep nudging the chip with soft resets in
      * case it is recoverable stiction rather than damage). */
 #define RAILED(x) ((x) <= -32000 || (x) >= 32000)
+    if (!IMU_FLIP_ON) return;                      /* axes not measured: motion only */
+#if TAB5_IMU_UP_AXIS >= 0
     static int s_bad; static int64_t s_gate; static bool s_warned;
     if (RAILED(a[IMU_UP_AXIS])) {
         if (++s_bad >= 12 && now_us > s_gate) {              /* ~3 s railed */
@@ -139,14 +124,14 @@ void imu_port_poll(int64_t now_us) {
     }
     s_bad = 0;
     int v = a[IMU_UP_AXIS] * IMU_UP_SIGN;
-    /* the other IN-SCREEN axis (Z is out of the glass): the up-axis must
+    /* the other IN-SCREEN axis (TAB5_IMU_FACE_AXIS is out of the glass): the up-axis must
      * carry more of gravity than it, or we are sideways/flat - hold state.
      * Skipped when that axis is railed - one good axis is enough to flip. */
-    int other = a[IMU_UP_AXIS == 0 ? 1 : 0];
+    int other = a[3 - IMU_UP_AXIS - TAB5_IMU_FACE_AXIS];   /* the in-screen axis that is not "up" */
     if (RAILED(other) && !s_warned) {
         s_warned = true;
         ESP_LOGW(TAG, "axis %c railed (sensor damage?) - flip runs on the up axis alone",
-                 IMU_UP_AXIS == 0 ? 'Y' : 'X');
+                 "XYZ"[3 - IMU_UP_AXIS - TAB5_IMU_FACE_AXIS]);
     }
     bool dominant = RAILED(other) || (v > 0 ? v : -v) > (other > 0 ? other : -other);
     bool wants_flip = dominant && (s_inverted ? (v > FLIP_THRESH) : (v < -FLIP_THRESH));
@@ -155,6 +140,7 @@ void imu_port_poll(int64_t now_us) {
         s_inverted = !s_inverted; s_streak = 0;
         ESP_LOGI(TAG, "orientation: %s", s_inverted ? "inverted" : "upright");
     }
+#endif
 }
 
 bool imu_port_inverted(void) { return s_inverted; }
@@ -167,9 +153,9 @@ int  imu_port_motion(void) { return s_motion; }
  * the neighbouring rails cycle. Wake: never trust what the chip did in the
  * dark - full soft reset + reconfigure. */
 void imu_port_sleep(void) {
-    if (s_dev) (void)wr8(REG_CTRL7, 0x00);
+    if (s_dev) (void)bmi270_stop(s_dev);
 }
 void imu_port_wake(void) {
-    if (!s_dev) return;
+    if (!s_bus) return;
     if (!imu_reset_config()) ESP_LOGW(TAG, "wake reconfig failed");
 }

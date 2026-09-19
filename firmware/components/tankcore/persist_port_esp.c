@@ -5,6 +5,7 @@
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include <time.h>
 
 static const char *TAG = "persist";
@@ -20,9 +21,13 @@ bool persist_port_load(void *buf, size_t max, size_t *got) {
     return e == ESP_OK;
 }
 bool persist_port_save(const void *buf, size_t len) {
+    int64_t t0 = esp_timer_get_time();
     nvs_handle_t h; if (nvs_open("tank", NVS_READWRITE, &h) != ESP_OK) return false;
     esp_err_t e = nvs_set_blob(h, "save", buf, len); if (e == ESP_OK) e = nvs_commit(h);
     nvs_close(h); if (e != ESP_OK) ESP_LOGW(TAG, "save failed: %s", esp_err_to_name(e));
+    /* the time of every flash write (debug level): a board whose display DMA
+       stalls while the cache is off shows it here (the Tab5's flash hunt, 2026-09-19) */
+    else ESP_LOGD(TAG, "saved %u bytes at %.3f s in %.1f ms", (unsigned)len, t0 / 1e6, (esp_timer_get_time() - t0) / 1e3);
     return e == ESP_OK;
 }
 /* the keeper's reset: the whole "tank" namespace goes - "save" and the

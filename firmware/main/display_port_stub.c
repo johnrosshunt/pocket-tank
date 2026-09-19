@@ -11,6 +11,7 @@ static int64_t last_report = 0;
 bool display_port_init(void) { ESP_LOGI(TAG, "stub display port (no panel)"); return true; }
 void display_port_sleep(void) {}
 void display_port_wake(void) {}
+void display_port_director(int argc, char **argv) { (void)argc; (void)argv; }
 void display_port_set_inverted(bool inverted) { (void)inverted; }
 static uint8_t s_brightness = 0xFF;
 void display_port_set_brightness(uint8_t level) { s_brightness = level; }

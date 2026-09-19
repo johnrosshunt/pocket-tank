@@ -1,9 +1,11 @@
 /* tank.h — platform-agnostic reflex layer for the pocket fish tank.
  *
  * Ported from the browser prototype (llm-fishtank-v0_2.html); same fish,
- * same goals, same drive dynamics, rescaled to the 448x368 landscape tank.
- * World geometry (bubble column, reef, zones) matches model/gen_traces.py so
- * the advisor model sees the world it was trained on.
+ * same goals, same drive dynamics, rescaled to the 640x360 widescreen tank of
+ * the M5Stack Tab5 (shown 2x on its 1280x720 panel; the 1.8's build, on
+ * main, is 448x368). World geometry (bubble column, reef, zones) is
+ * proportional to model/gen_traces.py's 448x368 world, and the advisor sees
+ * it only as zones and distance buckets, so the model needs no retraining.
  *
  * Population (docs/progression-next.md): the tank holds up to N_FISH_MAX fish
  * but only fish[0..n_fish-1] are alive/active. A new tank starts with two
@@ -20,8 +22,14 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define TANK_W 448
-#define TANK_H 368
+#define TANK_W 640
+#define TANK_H 360
+/* the pages' design column (2026-09-18, the Tab5 port): the milestones, shop,
+ * settings, setup and prompt pages keep the 1.8's tested 448-px layouts,
+ * centred on the 640-px tank - every page x is UI_X0 + its 1.8 value; the
+ * page backgrounds still fill the whole width */
+#define UI_W  448
+#define UI_X0 ((TANK_W - UI_W) / 2)
 
 #define N_FISH_MAX 6            /* array bound; the live count is tank_t.n_fish */
 #define N_FISH_START 2          /* a new tank: two contrasting adults */
@@ -51,11 +59,11 @@
                                                 * live only once bought; tank_veg_beds) */
 typedef enum { VEG_KIND_GRASS, VEG_KIND_SWORD } veg_kind_t;
 #define VEG_START  0.35f                       /* a fresh tank (and a bought plant): comfortable cover */
-#define VEG_NUB    0.03f                       /* trim floor: ~13 px green stubble */
+#define VEG_NUB    0.03f                       /* trim floor: ~16 px green stubble */
 #define VEG_BARE   0.10f                       /* tallest bed under this = no cover
                                                 * anywhere: mild unease (relieved the
                                                 * moment one tuft regrows past it) */
-#define VEG_NURSERY 0.12f                      /* a bed this tall (~47 px, hides an adult
+#define VEG_NURSERY 0.12f                      /* a bed this tall (~45 px, hides an adult
                                                 * body) is a NURSERY: courtship happens
                                                 * low in it and a fry is only born with
                                                 * one somewhere (2026-09-04) */
@@ -64,13 +72,13 @@ typedef enum { VEG_KIND_GRASS, VEG_KIND_SWORD } veg_kind_t;
                                                 * One bed at the ceiling is just a
                                                 * good place to hide. */
 #define VEG_FRONDS_MAX 16                      /* per-bed frond slots (reef bed: 11-15) */
-#define VEG_SEGS_FULL 107                      /* frond segments at growth 1: the tip
+#define VEG_SEGS_FULL 104                      /* frond segments at growth 1: the tip
                                                 * of the tallest frond touches y~10,
                                                 * just under the surface (render.c
-                                                * VEG_SEG_DY 3.2 px pitch from y=352) */
+                                                * VEG_SEG_DY 3.2 px pitch from y=344) */
 #define ALGAE_CELL 16                          /* px per glass-film grid cell */
-#define ALGAE_COLS (TANK_W / ALGAE_CELL)       /* 28 */
-#define ALGAE_ROWS (TANK_H / ALGAE_CELL)       /* 23 */
+#define ALGAE_COLS (TANK_W / ALGAE_CELL)       /* 40 */
+#define ALGAE_ROWS (TANK_H / ALGAE_CELL)       /* 22 (the floor's last 8 px take no film) */
 #define ALGAE_CELLS (ALGAE_COLS * ALGAE_ROWS)
 #define ALGAE_DIRTY 0.15f                      /* film on more of the glass than this =
                                                 * a DIRTY tank: no fry is conceived in
@@ -504,7 +512,7 @@ void  tank_castle_place(tank_t *t);
 enum { DECOR_Z_BACK = 0, DECOR_Z_MIDDLE = 1, DECOR_Z_FRONT = 2, DECOR_Z_N = 3 };
 #define DECOR_MARGIN    30                 /* the snail's margin: inside the panel's rounded bezel */
 #define PLANT_HALF_W    21                 /* four leaves at a 14 px pitch: centre to the outer leaf */
-#define PLANT_X_DEFAULT (208.0f + PLANT_HALF_W)   /* the open floor between the reef bed and bed 2 */
+#define PLANT_X_DEFAULT (TANK_W * 0.464f + PLANT_HALF_W)   /* the open floor between the reef bed and bed 2 */
 /* the castle (2026-09-16, Strato's castle-v2 mockup, drawn procedurally in
  * render.c): ~184 px wide on the floor, a swim-through arch. Its depths are
  * BEHIND and IN FRONT only (Strato: "no among"), and they mean the PLANT
@@ -512,7 +520,7 @@ enum { DECOR_Z_BACK = 0, DECOR_Z_MIDDLE = 1, DECOR_Z_FRONT = 2, DECOR_Z_N = 3 };
  * front of; FRONT = in front of the grass, and the fish swim THROUGH the arch
  * (the keep behind them, the gate wall and the front towers over them). */
 #define CASTLE_HALF_W   92
-#define CASTLE_X_DEFAULT 300.0f
+#define CASTLE_X_DEFAULT (TANK_W * 0.67f)
 bool  tank_decor_placeable(int item);      /* SD item index: has an x and a layer */
 int   tank_decor_z_count(int item);        /* depths the item offers: 3 (BACK/MIDDLE/FRONT) or 2 (BACK/FRONT) */
 int   tank_decor_z_at(int item, int i);    /* the i-th offered depth (the placement bar's segment i) */

@@ -21,4 +21,6 @@ void display_port_set_inverted(bool inverted);
  * across display_port_wake, which re-inits the panel. */
 void    display_port_set_brightness(uint8_t level);
 uint8_t display_port_brightness(void);
+/* the board's own serial commands (director `disp ...`); a no-op where a port has none */
+void display_port_director(int argc, char **argv);
 #endif

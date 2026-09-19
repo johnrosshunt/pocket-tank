@@ -1,28 +1,30 @@
-/* touch_port_ft3168.c — FT3168 capacitive touch (FT5x06 register family) ->
+/* touch_port_tab5.c — the M5Stack Tab5's ST7123 touch (the panel's own
+ * controller, I2C 0x55; board_tab5.h, docs/boards/m5stack-tab5.md) ->
  * tank_touch_hold / tank_touch_tap, with the same gesture timing as the sim's
  * mouse: press+release < 350 ms with < 24 px displacement = tap (fingertips
- * roll and this panel is 322 ppi); held > 300 ms = hold; a drag down from
+ * roll; thresholds are in tank px, 2 panel px each here); held > 300 ms = hold; a drag down from
  * the top edge = feed at that x; every touched frame streams to
  * tank_touch_drag (a moving stroke wipes algae; a horizontal slash through
  * a canopy trims it). Fish taps hit-test 38 px against the press-time fish
  * snapshot AND the current position - fish move during a tap. While the stats
  * card is up, a tap anywhere on empty glass dismisses it (hunting the same
  * fish again to close it was the old, cumbersome way) and does nothing else.
- * Coordinates are mapped from the portrait panel to the landscape tank. */
+ * Coordinates are mapped from the portrait panel to the landscape tank (the
+ * display port's turn, halved: see touch_port_poll). */
 #include "touch_port.h"
-#include "board_pins.h"
+#include "board_tab5.h"
 #include "tank.h"
 #include "render.h"
 #include "setup.h"
 #include "notice.h"
 #include "audio_port.h"
 #include "progression.h"
-#include "esp_lcd_touch_ft5x06.h"
-#include "esp_lcd_touch_cst816s.h"
+#include "esp_lcd_touch_st7123.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_timer.h"
 #include "esp_log.h"
 #include "driver/i2c_master.h"
+#include "driver/gpio.h"
 #include <math.h>
 
 static const char *TAG = "touch";
@@ -46,27 +48,46 @@ static bool s_inverted;                           /* screen 180-flipped: mirror 
  * same reason; Strato saw it on the swatch rows, 2026-09-13). Reported
  * points move UP by this many px in displayed space; director `touch bias
  * <px>` tunes it live. */
-static int s_bias_y = 10;
+static int s_bias_y = 5;                          /* the AMOLED's 10 px (~0.8 mm at 322 ppi) in the Tab5's
+                                                     2-panel-px tank pixels (~294 ppi panel) */
 void touch_port_set_bias(int px) { s_bias_y = px; }
 int  touch_port_bias(void) { return s_bias_y; }
 
 void touch_port_set_inverted(bool inverted) { s_inverted = inverted; }
-extern i2c_master_bus_handle_t board_i2c_bus(void);
-extern bool board_is_v2(void);
+static bool s_log;                                /* director `touch log on`: every press, native -> tank */
+void touch_port_set_log(bool on) { s_log = on; }
+/* When the ST7123 is read (the flash hunt, 2026-09-18): polled every
+ * frame, the panel flashed white now and then, each flash one stretched
+ * panel frame; with no reads, no flashes. So it is read the way its INT line
+ * (GPIO 23, low when a report is ready) asks: after an INT edge, and while a
+ * finger is down (the lift's report) - an idle tank is never read.
+ * Director `touch poll int|always|off` switches it for the bench. */
+static int s_poll_mode = TOUCH_POLL_INT;
+static volatile bool s_int_pending;
+static volatile uint32_t s_int_edges;
+static uint32_t s_reads;
+static int64_t s_read_until;                      /* keep reading until then: a finger just seen */
+void touch_port_set_polling(int mode) { s_poll_mode = mode; s_int_pending = true; }
+void touch_port_poll_stats(uint32_t *reads, uint32_t *int_edges) { *reads = s_reads; *int_edges = s_int_edges; }
+static void IRAM_ATTR on_tp_int(void *arg) { (void)arg; s_int_pending = true; s_int_edges++; }
 
+/* the ST7123's touch half answers only once the display port has released
+ * LCD reset (expander 1 P4), so main calls this after display_port_init */
 bool touch_port_init(void) {
     esp_lcd_panel_io_handle_t io;
-    bool v2 = board_is_v2();
-    esp_lcd_panel_io_i2c_config_t io_cfg = v2 ? (esp_lcd_panel_io_i2c_config_t)ESP_LCD_TOUCH_IO_I2C_CST816S_CONFIG()
-                                              : (esp_lcd_panel_io_i2c_config_t)ESP_LCD_TOUCH_IO_I2C_FT5x06_CONFIG();
-    io_cfg.dev_addr = v2 ? I2C_ADDR_CST816 : I2C_ADDR_FT3168; io_cfg.scl_speed_hz = 400000;
-    if (esp_lcd_new_panel_io_i2c(board_i2c_bus(), &io_cfg, &io) != ESP_OK) { ESP_LOGW(TAG, "no touch io"); return false; }
-    esp_lcd_touch_config_t tp_cfg = { .x_max = PANEL_W, .y_max = PANEL_H, .rst_gpio_num = -1, .int_gpio_num = -1,
+    esp_lcd_panel_io_i2c_config_t io_cfg = ESP_LCD_TOUCH_IO_I2C_ST7123_CONFIG();
+    io_cfg.dev_addr = TAB5_ADDR_ST7123_TP; io_cfg.scl_speed_hz = 400000;
+    if (!board_i2c_bus() || esp_lcd_new_panel_io_i2c(board_i2c_bus(), &io_cfg, &io) != ESP_OK) { ESP_LOGW(TAG, "no touch io"); return false; }
+    esp_lcd_touch_config_t tp_cfg = { .x_max = TAB5_PANEL_W, .y_max = TAB5_PANEL_H, .rst_gpio_num = -1, .int_gpio_num = -1,
         .levels = { .reset = 0, .interrupt = 0 }, .flags = { .swap_xy = 0, .mirror_x = 0, .mirror_y = 0 } };
-    esp_err_t err = v2 ? esp_lcd_touch_new_i2c_cst816s(io, &tp_cfg, &s_tp)
-                       : esp_lcd_touch_new_i2c_ft5x06(io, &tp_cfg, &s_tp);
-    if (err != ESP_OK) { ESP_LOGW(TAG, "no %s", v2 ? "CST816" : "FT3168"); return false; }
-    ESP_LOGI(TAG, "%s ready", v2 ? "CST816" : "FT3168");
+    if (esp_lcd_touch_new_i2c_st7123(io, &tp_cfg, &s_tp) != ESP_OK) { ESP_LOGW(TAG, "no ST7123 touch"); return false; }
+    const gpio_config_t int_cfg = { .pin_bit_mask = 1ULL << TAB5_TP_INT_GPIO, .mode = GPIO_MODE_INPUT,
+                                    .pull_up_en = GPIO_PULLUP_ENABLE, .intr_type = GPIO_INTR_NEGEDGE };
+    esp_err_t e = gpio_config(&int_cfg);
+    if (e == ESP_OK) { e = gpio_install_isr_service(0); if (e == ESP_ERR_INVALID_STATE) e = ESP_OK; }   /* already installed: fine */
+    if (e == ESP_OK) e = gpio_isr_handler_add(TAB5_TP_INT_GPIO, on_tp_int, NULL);
+    if (e != ESP_OK) { s_poll_mode = TOUCH_POLL_ALWAYS; ESP_LOGW(TAG, "touch INT on GPIO %d unavailable (%s): read every frame", TAB5_TP_INT_GPIO, esp_err_to_name(e)); }
+    ESP_LOGI(TAG, "ST7123 touch ready, read %s", s_poll_mode == TOUCH_POLL_INT ? "on its INT line (GPIO 23)" : "every frame");
     return true;
 }
 
@@ -75,15 +96,32 @@ void touch_port_poll(tank_t *t) {
     int64_t now = esp_timer_get_time();
     if (s_cf && now - s_cf_us > CONFIRM_TIMEOUT_US) touch_port_confirm_answer(-1);   /* nobody answered: keep the tank */
     if (!s_tp) return;
-    uint16_t x[1], y[1], st[1]; uint8_t n = 0;
-    esp_lcd_touch_read_data(s_tp);
-    bool touched = esp_lcd_touch_get_coordinates(s_tp, x, y, st, &n, 1) && n > 0;
-    /* portrait panel (px,py) -> landscape tank (tx,ty): tx = TANK_W-1-py, ty = px;
-     * flipped screen: mirror both, so downstream gestures live in displayed space */
-    float tx = touched ? (s_inverted ? (float)y[0] : (float)(TANK_W - 1 - y[0])) : s_lx;
-    float ty = touched ? (s_inverted ? (float)(TANK_H - 1 - x[0]) : (float)x[0]) - s_bias_y : s_ly;
+    esp_lcd_touch_point_data_t pt[1]; uint8_t n = 0;
+    bool touched = false;
+    bool read = s_poll_mode == TOUCH_POLL_ALWAYS ||
+                (s_poll_mode == TOUCH_POLL_INT && (s_int_pending || s_down || now < s_read_until));
+    if (read) {
+        s_int_pending = false;
+        esp_lcd_touch_read_data(s_tp); s_reads++;
+        touched = esp_lcd_touch_get_data(s_tp, pt, &n, 1) == ESP_OK && n > 0;
+        if (touched) s_read_until = now + 100000;
+        static bool first;
+        if (!first && s_int_edges) { first = true; ESP_LOGI(TAG, "touch INT seen: reads follow it"); }
+    }
+    /* native portrait (x 0..719, y 0..1279) -> the view (u across, v down,
+     * the SD-card side at the bottom; docs/boards/m5stack-tab5.md): u = 1279-y,
+     * v = x -> tank = view / 2. Flipped screen: mirror both, so downstream
+     * gestures live in displayed space */
+    float vu = touched ? (float)(TAB5_PANEL_H - 1 - pt[0].y) : 0, vv = touched ? (float)pt[0].x : 0;
+    float tx = touched ? (s_inverted ? (float)(TANK_W - 1) - vu * 0.5f : vu * 0.5f) : s_lx;
+    float ty = touched ? (s_inverted ? (float)(TANK_H - 1) - vv * 0.5f : vv * 0.5f) - s_bias_y : s_ly;
+    if (touched && tx < 0) tx = 0;
+    if (touched && tx > TANK_W - 1) tx = TANK_W - 1;
     if (touched && ty < 0) ty = 0;
+    if (touched && ty > TANK_H - 1) ty = TANK_H - 1;
     if (touched && !s_down) {
+        if (s_log) ESP_LOGI(TAG, "press: native %u,%u -> view %.0f,%.0f -> tank %.0f,%.0f (bias %d%s)",
+                            pt[0].x, pt[0].y, vu, vv, tx, ty, s_bias_y, s_inverted ? ", flipped" : "");
         audio_port_prewarm();                   /* the release's cue plays warm */
         s_press_us = now; s_px = tx; s_py = ty;
         /* snapshot the school: the user aims at where a fish WAS - by release

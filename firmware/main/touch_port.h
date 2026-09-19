@@ -40,4 +40,8 @@ void touch_port_show_shop(bool on);
 int  touch_port_take_shop(void);
 void touch_port_set_bias(int px);              /* finger-landing correction: reported y moves up by px */
 int  touch_port_bias(void);
+enum { TOUCH_POLL_OFF, TOUCH_POLL_INT, TOUCH_POLL_ALWAYS };
+void touch_port_set_polling(int mode);          /* TOUCH_POLL_*: when the controller is read (bench diagnosis) */
+void touch_port_poll_stats(uint32_t *reads, uint32_t *int_edges);
+void touch_port_set_log(bool on);              /* log every press's raw and tank coordinates (director `touch log`) */
 #endif
