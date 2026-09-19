@@ -14,6 +14,11 @@ menu "pocket-tank"
         default n
         help
             The Tab5 port (docs/boards/m5stack-tab5.md). Off = stub touch port.
+    config POCKET_TANK_RTC_RX8130
+        bool "Wall clock from the Tab5's RX8130CE RTC (off: the PCF85063)"
+        default n
+        help
+            The Tab5 port (docs/boards/m5stack-tab5.md).
     config POCKET_TANK_AUDIO_TAB5
         bool "Play the sound bank through the Tab5's ES8388 codec + NS4150B amp (I2S)"
         default n

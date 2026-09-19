@@ -64,7 +64,7 @@ the speaker played.
 | Battery | 2S NP-F550 (7.4 V). The INA226 (0x41) bus input is the pack: 6.6 V nearly flat, 7.5 V after half an hour's charge; the gauge is that voltage on a 2-cell Li-ion curve (it runs ahead while charging). Its shunt reads about -2.4 mV while the IP2326 charges (steady), +5 uV on USB with the charger off (USB feeds the board); positive on battery. Charging = shunt below -200 uV. The charger runs only while expander 0x44 P7 is HIGH (low: the current stops) - enabled at boot. P6 read HIGH in every state: unused. The shunt's value is unknown, so no mA | CONFIRMED (phase 7 bench, 2026-09-19) |
 | Power button | S1 to the PMS150G, which runs it itself: one press powers on, two presses power off, a long press = download mode. The firmware takes no key events. Software power-off = expander 0x44 P4 high for 100 ms: the rails drop at once (a `BOD` brownout line is the last thing on the console). The PMS150G's use of GPIO 35 is unknown | CONFIRMED (phase 7 bench, 2026-09-19) |
 | BOOT button | GPIO 35 (strapping pin, shared with the PMS150G); not a deep-sleep wake pin on the P4 | ASSUMED (schematic p1, p5) |
-| RTC | RX8130CE at 0x32 | ASSUMED (schematic p5) |
+| RTC | RX8130CE at 0x32 (`rtc_port_rx8130.c`, `CONFIG_POCKET_TANK_RTC_RX8130`): BCD time at 0x10-0x16 (weekday one-hot), VLF = flag register 0x1D bit 1 (the time was lost), STOP = control 0x1E bit 6 while it is written; control 1 (0x1F, the backup cell's charge enable) left alone. A lost or unset time is seeded from the build time (the build machine's local time, kept as if UTC: the tank only uses spans). It keeps time through a power-off with the cable out (5 minutes off, 5 minutes on the clock) and through deep sleep; at the first boot it read the voltage-low flag (flags af) and was seeded, and has read flags ad since | CONFIRMED (phase 8 bench, 2026-09-19) |
 | Unused | ESP32-C6 Wi-Fi (kept off), camera, microSD, RS-485, USB-A | — |
 
 ## Port phases
@@ -122,8 +122,13 @@ the speaker played.
    the fish snapshot moved to RTC_NOINIT (with a magic): 3 of 3 fish back
    where they fell asleep. PASSED 2026-09-19. The time asleep reads "no
    clock" until phase 8 (the RX8130CE; the clock port knows a PCF85063).
-8. RTC (RX8130CE).
-9. The model on the P4 (its SIMD path is S3-only: 16.8 s per decision).
+8. RTC (RX8130CE). PASSED 2026-09-19: the clock runs, survives a reboot,
+   a deep sleep and a power-off with the cable out; the tank lives through
+   the time it was away (`cold boot: 0.1 h lived through`).
+9. The model on the P4 (its SIMD path is S3-only: 16.8 s per decision), and
+   the frame rate: the PPA's turn-and-scale costs 17.6 ms of every frame, so
+   ~35 fps is this port's ceiling and a grown tank (tall canopies, filmed
+   glass) renders in 11 ms for ~30 fps.
 
 ## Build and flash
 

@@ -7,6 +7,7 @@
 #include <strings.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <time.h>
 #include "sdkconfig.h"
 #include "esp_log.h"
 #include "progression.h"
@@ -345,6 +346,10 @@ static void run(tank_t *t, char *line) {
                  setup_keyboard() == SETUP_KBD_PAGES ? "PAGES (the second: half the alphabet, big keys)" : "the letter wheel");
     } else if (!strcmp(c, "disp")) {                 /* the board's display settings (Tab5: the backlight PWM, live) */
         display_port_director(argc, argv);
+    } else if (!strcmp(c, "clock")) {                /* the wall clock the save stamps (the board's RTC set it at boot) */
+        time_t now = (time_t)clock_port_now_unix(); struct tm t; gmtime_r(&now, &t);
+        ESP_LOGI(TAG, "clock: %04d-%02d-%02d %02d:%02d:%02d (unix %lld)", t.tm_year + 1900, t.tm_mon + 1, t.tm_mday,
+                 t.tm_hour, t.tm_min, t.tm_sec, (long long)now);
     } else if (!strcmp(c, "llm") && argc > 1) {      /* llm on|off: the model advisor or the rules (bench diagnosis; not saved) */
         bool on = strcmp(argv[1], "off") != 0;
         ESP_LOGI(TAG, "advisor: %s", main_set_llm(on) ? "LLM" : on ? "rules (no model)" : "rules");
