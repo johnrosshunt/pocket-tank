@@ -1,4 +1,4 @@
-set(SRCS main.c board_tab5.c director.c brightness.c batlog.c codec_port_tab5.c advisor_llm_esp.c battery_port_axp2101.c imu_port_tab5.c)
+set(SRCS main.c board_tab5.c director.c brightness.c batlog.c codec_port_tab5.c advisor_llm_esp.c battery_port_tab5.c imu_port_tab5.c)
 if(CONFIG_POCKET_TANK_DISPLAY_TAB5)
     list(APPEND SRCS display_port_tab5.c)
 elseif(CONFIG_POCKET_TANK_DISPLAY_SH8601)

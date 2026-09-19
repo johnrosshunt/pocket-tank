@@ -61,8 +61,8 @@ the speaker played.
 | Touch | ST7123 at I2C 0x55, INT GPIO 23, reset expander 0x43 P5; panel-native coordinates; firmware version 3 = ST7123 (1 = ST7121). Answers only once LCD reset is released too (phase 1 had touch out of reset but LCD reset held: not found); phase 2 read firmware 3 = ST7123. Read after an INT edge (GPIO 23, falling) and while a finger is down - an idle tank is never read. Mapped with the panel: view u = 1279 - y, v = x, tank = view / 2; corners read (52, 46), (592, 46), (52, 319), (600, 315) about 9 mm in | CONFIRMED (phase 3 bench) |
 | IMU | BMI270 at 0x68 (SDO grounded); INT1 to the wake circuit, not a GPIO | ASSUMED (schematic p2, docs) |
 | Audio | ES8388 codec 0x10, ES7210 mic ADC 0x40 (unused); I2S MCLK 30, BCLK 27, LRCK 29, DOUT 26, DIN 28; NS4150B speaker amp CTRL on expander 0x43 P1, high = on. The ES8388 as Espressif's BSP opens it (slave, 16-bit, MCLK 256 fs, LOUT1/ROUT1 0 dB, LOUT2/ROUT2 -30 dB), DAC only; the mono stream in both I2S slots; down whenever idle. Headphone jack (detect on expander 0x43 P7) not handled | CONFIRMED (phase 6 bench, 2026-09-19: cues clean at a comfortable level, volume steps, no pops, no hiss at rest) |
-| Battery | 2S NP-F550 (7.4 V); INA226 monitor at 0x41; IP2326 charger, charges only while the firmware enables it | ASSUMED (schematic p5, docs) |
-| Power button | S1 to a custom-programmed PMS150G, which holds the power on; power-off = pulse on expander 0x44 P4; the PMS150G also drives GPIO 35 (behaviour undocumented) | ASSUMED (schematic p5) |
+| Battery | 2S NP-F550 (7.4 V). The INA226 (0x41) bus input is the pack: 6.6 V nearly flat, 7.5 V after half an hour's charge; the gauge is that voltage on a 2-cell Li-ion curve (it runs ahead while charging). Its shunt reads about -2.4 mV while the IP2326 charges (steady), +5 uV on USB with the charger off (USB feeds the board); positive on battery. Charging = shunt below -200 uV. The charger runs only while expander 0x44 P7 is HIGH (low: the current stops) - enabled at boot. P6 read HIGH in every state: unused. The shunt's value is unknown, so no mA | CONFIRMED (phase 7 bench, 2026-09-19) |
+| Power button | S1 to the PMS150G, which runs it itself: one press powers on, two presses power off, a long press = download mode. The firmware takes no key events. Software power-off = expander 0x44 P4 high for 100 ms: the rails drop at once (a `BOD` brownout line is the last thing on the console). The PMS150G's use of GPIO 35 is unknown | CONFIRMED (phase 7 bench, 2026-09-19) |
 | BOOT button | GPIO 35 (strapping pin, shared with the PMS150G); not a deep-sleep wake pin on the P4 | ASSUMED (schematic p1, p5) |
 | RTC | RX8130CE at 0x32 | ASSUMED (schematic p5) |
 | Unused | ESP32-C6 Wi-Fi (kept off), camera, microSD, RS-485, USB-A | — |
@@ -105,7 +105,14 @@ the speaker played.
    2026-09-19 on the second: cues clean, quiet / off / normal and the
    settings page's volume, the tank's own cues, no pops, no hiss.
 7. Battery, charging and power (INA226, IP2326, expander 2, the power
-   button's PMS150G), and sleep.
+   button's PMS150G), and sleep. First bench (a measuring build): the
+   table rows above. PASSED 2026-09-19 on the second: the gauge, the card's
+   charging pill (it follows the charger off and on, and the cable out and
+   in; the IP2326 takes a few seconds to start after it is enabled), the
+   staged low-battery notice, `poweroff`. OPEN: `deepsleep 30` never slept -
+   the panel's DPI DMA kept streaming from PSRAM through the light-sleep
+   grace (`lcd.dsi: ... underrun`), and the board came back 30 s later by a
+   watchdog reset (`HP_SYS_HP_WDT_RESET`), not the timer.
 8. RTC (RX8130CE).
 9. The model on the P4 (its SIMD path is S3-only: 16.8 s per decision).
 

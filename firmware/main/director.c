@@ -170,7 +170,7 @@ static void help(void) {
     ESP_LOGI(TAG, "kbd [wheel|grid|pages] (the name page's design: the wheel, or one of the two rejected keyboards of 09-13 - not saved, a boot is the wheel)");
     ESP_LOGI(TAG, "disp (display settings) | disp bl <hz>|steady|pwm (Tab5: the backlight PWM frequency, live; steady = no PWM)");
     ESP_LOGI(TAG, "touch [bias <px>] (finger-landing correction: reported touches move up by px; not saved) | touch log on|off | touch poll [int|always|off]");
-    ESP_LOGI(TAG, "pmic (AXP2101 dump) | pmic on|off <aldo1|aldo2..4|bldo1|bldo2|cpusldo|dcdc2..5|dldo1|dldo2> (experiments; boot trims the unused ones) | pmic trim");
+    ESP_LOGI(TAG, "pmic (the board's battery / power dump) | pmic on|off <rail> (the board's switches: Tab5 `chg` = the charger) | pmic trim");
     ESP_LOGI(TAG, "bright <0-255> (panel now; not saved) | level 100|60|30 (the keeper's setting, saved)");
     ESP_LOGI(TAG, "batlog [clear] (the tank's own battery log: SoC/VBAT every 5 min awake, 30 min asleep, mA derived - read it after a night on battery) | codec (ES8311 registers) | deepsleep [N] (N: 5 s grace then deep sleep with an N s timer wake - one batlog window per N, BOOT wakes it; no N: the keeper's sleep, grace then power-off) | poweroff (save + PMIC cut now) | keytime [N] (N s of timing every PWR press - is a tap under the PMIC's 128 ms power-on hold?)");
     ESP_LOGI(TAG, "overgrown (grass to the ceiling + fouled glass; fish stress climbs) | court (pair circles the reef now and every ~minute; fry at the next light-on) | arrive (the fry, now)");
