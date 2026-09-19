@@ -573,7 +573,7 @@ void app_main(void) {
     s_pmic = battery_port_init(board_i2c_bus());
     battery_port_trim_rails();        /* the schematic's unused outputs off (docs/HANDOFF.md, the battery pass) */
     battery_port_key_init();          /* the PWR key: sleep / power-off IRQs on, the power-on press cleared */
-    codec_port_init(board_i2c_bus());  /* the ES8311 fully down until a cue needs it (its digital side shares VCC3V3) */
+    codec_port_init(board_i2c_bus());  /* the codec fully down until a cue needs it */
     audio_port_init(board_i2c_bus());  /* the sound bank + player task (docs/AUDIO.md); silent without the codec */
     tank_events_set(on_tank_event, NULL);
     imu_port_init(board_i2c_bus());   /* screen auto-flip; absent IMU = always upright */

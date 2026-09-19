@@ -14,11 +14,11 @@ menu "pocket-tank"
         default n
         help
             The Tab5 port (docs/boards/m5stack-tab5.md). Off = stub touch port.
-    config POCKET_TANK_AUDIO_ES8311
-        bool "Play the sound bank through the ES8311 codec + NS4150B amp (I2S)"
+    config POCKET_TANK_AUDIO_TAB5
+        bool "Play the sound bank through the Tab5's ES8388 codec + NS4150B amp (I2S)"
         default n
         help
-            Enable for the real board (docs/AUDIO.md). Off = stub audio port: cues compile, nothing plays.
+            The Tab5 port (docs/boards/m5stack-tab5.md, docs/AUDIO.md). Off = stub audio port: cues compile, nothing plays.
     config POCKET_TANK_NO_PIE
         bool "Disable the PIE SIMD inference kernel (scalar dot products)"
         default n

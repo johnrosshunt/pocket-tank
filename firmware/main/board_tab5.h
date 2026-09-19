@@ -39,6 +39,13 @@
 #define TAB5_LCD_BL_GPIO    22       /* PWM to the backlight boost converter's EN */
 #define TAB5_LCD_BL_HZ      44100    /* M5GFX's; the BSP's 5 kHz is a flicker suspect (phase 2 bench) */
 #define TAB5_TP_INT_GPIO    23
+/* audio: I2S to the ES8388 (the schematic and Espressif's BSP agree); the
+ * NS4150B speaker amp's CTRL is TAB5_IOX1_SPK_EN */
+#define TAB5_I2S_MCLK       30
+#define TAB5_I2S_BCLK       27
+#define TAB5_I2S_WS         29
+#define TAB5_I2S_DOUT       26       /* P4 -> ES8388 DACDAT */
+#define TAB5_I2S_DIN        28       /* ES7210 mic ADC -> P4 (unused) */
 /* IMU (BMI270, docs/boards/m5stack-tab5.md "IMU mounting"): the accel axis
  * (0 X, 1 Y, 2 Z) and sign that read +1 g held upright - landscape, USB-C
  * left, SD slot at the bottom. -1 = NOT MEASURED: the screen never flips.

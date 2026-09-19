@@ -56,10 +56,16 @@ static void scan(void) {
     ESP_LOGI(TAG, "i2c scan: %d devices, %d of %d expected missing", n, missing, (int)sizeof want);
 }
 
-/* an output pin at a level; a failure is logged, not fatal */
+/* an output pin at a level; a failure is logged, not fatal. The
+ * PI4IOE5V6408 powers up with every output in HIGH-IMPEDANCE (register 0x07
+ * = 0xFF) and a pull-down on every pin, and the driver's set_dir does not
+ * touch that register: an "output" set high stays low until it is made
+ * push-pull (the silent speaker amp, phase 6 bench 2026-09-19) */
 static void iox_out(esp_io_expander_handle_t x, uint32_t pin, int level, const char *what) {
     if (!x) return;
-    if (esp_io_expander_set_dir(x, pin, IO_EXPANDER_OUTPUT) != ESP_OK || esp_io_expander_set_level(x, pin, level) != ESP_OK)
+    if (esp_io_expander_set_level(x, pin, level) != ESP_OK ||
+        esp_io_expander_set_output_mode(x, pin, IO_EXPANDER_OUTPUT_MODE_PUSH_PULL) != ESP_OK ||
+        esp_io_expander_set_dir(x, pin, IO_EXPANDER_OUTPUT) != ESP_OK)
         ESP_LOGW(TAG, "expander: %s failed", what);
 }
 

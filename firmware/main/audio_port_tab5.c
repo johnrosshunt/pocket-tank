@@ -1,9 +1,11 @@
-/* audio_port_es8311.c - I2S -> ES8311 -> NS4150B -> the 12 mm speaker.
- * See audio_port.h. Pins from resources/ESP32-S3-Touch-AMOLED-1.8.pdf. */
+/* audio_port_tab5.c - I2S -> ES8388 -> NS4150B -> the M5Stack Tab5's
+ * speaker. See audio_port.h. Pins and the amp's enable (IO expander 1 P1):
+ * board_tab5.h, docs/boards/m5stack-tab5.md. No switched codec rail here:
+ * the ES8388 idles in its own power-down (codec_port_tab5.c). */
 #include "audio_port.h"
 #include "audio.h"
 #include "codec_port.h"
-#include "battery_port.h"
+#include "board_tab5.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
@@ -16,14 +18,11 @@
 
 static const char *TAG = "audio";
 
-#define PIN_I2S_MCLK  16
-#define PIN_I2S_BCLK  9
-#define PIN_I2S_WS    45
-#define PIN_I2S_DOUT  8        /* ESP -> codec DSDIN */
-#define PIN_AMP_EN    46       /* NS4150B CTRL, 10k pulldown on the board */
+#define PIN_I2S_MCLK  TAB5_I2S_MCLK
+#define PIN_I2S_BCLK  TAB5_I2S_BCLK
+#define PIN_I2S_WS    TAB5_I2S_WS
+#define PIN_I2S_DOUT  TAB5_I2S_DOUT    /* ESP -> codec DACDAT */
 #define BLOCK         160      /* 10 ms at 16 kHz */
-#define IDLE_US       (2 * 1000000LL)
-#define CODEC_RAIL    "aldo1"  /* A3V3: the codec's AVDD + the mic */
 
 extern const uint8_t _binary_sounds_bin_start[];
 extern const uint8_t _binary_sounds_bin_end[];
@@ -49,7 +48,13 @@ static int64_t s_idle_us = 5 * 1000000LL;
 
 static uint32_t now_ms(void) { return (uint32_t)(esp_timer_get_time() / 1000); }
 
-static void amp(bool on) { gpio_set_level(PIN_AMP_EN, on); }
+/* the NS4150B's CTRL on IO expander 1 P1 (high = on). From the player task
+   on core 1: the I2C bus driver serialises it with the tank task's touch
+   and IMU reads */
+static void amp(bool on) {
+    esp_io_expander_handle_t x = board_iox1();
+    if (x) esp_io_expander_set_level(x, TAB5_IOX1_SPK_EN, on);
+}
 
 /* Deep sleep (2026-09-16, the night the tank died): the I2S lines and the
  * amp's CTRL are the ESP's outputs into ICs that stay powered on VCC3V3 all
@@ -62,8 +67,9 @@ static void amp(bool on) { gpio_set_level(PIN_AMP_EN, on); }
  * held. The codec is already down (audio_port_sleep) and the wake is a
  * reboot; audio_port_init releases the holds before the drivers claim the
  * pins again. */
-static const gpio_num_t QUIET_PINS[] = { PIN_I2S_MCLK, PIN_I2S_BCLK, PIN_I2S_WS, PIN_I2S_DOUT, PIN_AMP_EN };
+static const gpio_num_t QUIET_PINS[] = { PIN_I2S_MCLK, PIN_I2S_BCLK, PIN_I2S_WS, PIN_I2S_DOUT };
 void audio_port_deep_sleep_pins(void) {
+    amp(false);                                   /* the expander keeps its output through the sleep */
     for (size_t i = 0; i < sizeof QUIET_PINS / sizeof QUIET_PINS[0]; i++) {
         gpio_num_t p = QUIET_PINS[i];
         gpio_reset_pin(p);                        /* off the I2S matrix routing, a GPIO again */
@@ -85,8 +91,6 @@ static void write_silence(int ms) {
 /* power up: rail -> clocks -> codec -> zeros -> amp (pops stay inside) */
 static void bring_up(void) {
     int64_t t0 = esp_timer_get_time();
-    battery_port_set_rail(CODEC_RAIL, true);
-    vTaskDelay(pdMS_TO_TICKS(5));
     i2s_channel_enable(s_tx);                 /* MCLK/BCLK/LRCK running before the CSM starts */
     bool ok = codec_port_up();
     write_silence(s_settle_codec_ms);         /* the DAC's vmid / reference settle (fast charge, then normal) */
@@ -103,7 +107,6 @@ static void bring_down(void) {
     write_silence(10);
     i2s_channel_disable(s_tx);
     codec_port_down();
-    battery_port_set_rail(CODEC_RAIL, false);
     s_up = false;
     ESP_LOGI(TAG, "down (idle)");
 }
@@ -149,18 +152,23 @@ bool audio_port_init(i2c_master_bus_handle_t bus) {
     release_pins();                            /* a deep-sleep wake is a boot: drop the holds first */
     size_t bank_bytes = (size_t)(_binary_sounds_bin_end - _binary_sounds_bin_start);
     if (bank_bytes != SND_BANK_BYTES) { ESP_LOGW(TAG, "bank is %u bytes, sounds.h says %u: rebuild (tools/make_sounds.py build) - silent", (unsigned)bank_bytes, (unsigned)SND_BANK_BYTES); return false; }
-    if (!codec_port_present()) { ESP_LOGW(TAG, "no ES8311: silent"); return false; }
-    gpio_config_t io = { .pin_bit_mask = 1ULL << PIN_AMP_EN, .mode = GPIO_MODE_OUTPUT, .pull_down_en = GPIO_PULLDOWN_ENABLE };
-    gpio_config(&io); amp(false);
+    if (!codec_port_present()) { ESP_LOGW(TAG, "no ES8388: silent"); return false; }
+    esp_io_expander_handle_t x = board_iox1();
+    if (!x || esp_io_expander_set_output_mode(x, TAB5_IOX1_SPK_EN, IO_EXPANDER_OUTPUT_MODE_PUSH_PULL) != ESP_OK   /* see board_tab5.c iox_out */
+           || esp_io_expander_set_dir(x, TAB5_IOX1_SPK_EN, IO_EXPANDER_OUTPUT) != ESP_OK) { ESP_LOGW(TAG, "no speaker amp enable (expander 1): silent"); return false; }
+    amp(false);
     i2s_chan_config_t cc = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
     cc.dma_desc_num = 4; cc.dma_frame_num = BLOCK;
     if (i2s_new_channel(&cc, &s_tx, NULL) != ESP_OK) { ESP_LOGE(TAG, "no I2S channel"); return false; }
     i2s_std_config_t std = {
         .clk_cfg  = I2S_STD_CLK_DEFAULT_CONFIG(SND_RATE),              /* MCLK = 256 fs = 4.096 MHz */
         .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
+        /* slot_mask below: the mono stream in BOTH slots, so the speaker
+           plays whichever of the codec's channels feeds its amp */
         .gpio_cfg = { .mclk = PIN_I2S_MCLK, .bclk = PIN_I2S_BCLK, .ws = PIN_I2S_WS, .dout = PIN_I2S_DOUT, .din = I2S_GPIO_UNUSED,
                       .invert_flags = { 0 } },
     };
+    std.slot_cfg.slot_mask = I2S_STD_SLOT_BOTH;
     if (i2s_channel_init_std_mode(s_tx, &std) != ESP_OK) { ESP_LOGE(TAG, "I2S std init failed"); return false; }
     audio_init((const int16_t *)_binary_sounds_bin_start, SND_BANK_SAMPLES);   /* flash-mapped: no RAM */
     load_volume(); audio_set_volume(s_volume);

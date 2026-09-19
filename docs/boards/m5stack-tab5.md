@@ -40,6 +40,15 @@ expanders' pins), the schematic sided with the board-support package.
 
 ## Buses and pins
 
+The PI4IOE5V6408 expanders power up with every output HIGH-IMPEDANCE
+(register 0x07 = 0xFF) and a pull-down on every pin; the driver's `set_dir`
+leaves that register alone, so an output set high reads low until it is
+made push-pull (`board_tab5.c` `iox_out`). Found when the speaker amp's
+enable never rose (phase 6 bench, 2026-09-19).
+Reading an output back does not work either: the driver's `get_level`
+reads the input-status register, which read LOW on the amp enable while
+the speaker played.
+
 | Function | Pin / address | Status |
 | --- | --- | --- |
 | System I2C | SDA GPIO 31, SCL GPIO 32, 2.2 kOhm pull-ups; answering: 0x10, 0x32, 0x40, 0x41, 0x43, 0x44, 0x68 | CONFIRMED (phase 1 scan) |
@@ -51,7 +60,7 @@ expanders' pins), the schematic sided with the board-support package.
 | Backlight | GPIO 22 PWM to the ME2212 boost converter's EN; 44.1 kHz, 8-bit (M5GFX's; the BSP's 5 kHz is a flicker suspect); director `disp bl <hz>\|steady` switches it live | CONFIRMED (phase 2: levels visible, no flicker at 44.1 kHz) |
 | Touch | ST7123 at I2C 0x55, INT GPIO 23, reset expander 0x43 P5; panel-native coordinates; firmware version 3 = ST7123 (1 = ST7121). Answers only once LCD reset is released too (phase 1 had touch out of reset but LCD reset held: not found); phase 2 read firmware 3 = ST7123. Read after an INT edge (GPIO 23, falling) and while a finger is down - an idle tank is never read. Mapped with the panel: view u = 1279 - y, v = x, tank = view / 2; corners read (52, 46), (592, 46), (52, 319), (600, 315) about 9 mm in | CONFIRMED (phase 3 bench) |
 | IMU | BMI270 at 0x68 (SDO grounded); INT1 to the wake circuit, not a GPIO | ASSUMED (schematic p2, docs) |
-| Audio | ES8388 codec 0x10, ES7210 mic ADC 0x40; I2S MCLK 30, SCLK 27, LRCK 29, DOUT 26, DIN 28; NS4150B amp on expander 0x43 P1 | ASSUMED (schematic p3) |
+| Audio | ES8388 codec 0x10, ES7210 mic ADC 0x40 (unused); I2S MCLK 30, BCLK 27, LRCK 29, DOUT 26, DIN 28; NS4150B speaker amp CTRL on expander 0x43 P1, high = on. The ES8388 as Espressif's BSP opens it (slave, 16-bit, MCLK 256 fs, LOUT1/ROUT1 0 dB, LOUT2/ROUT2 -30 dB), DAC only; the mono stream in both I2S slots; down whenever idle. Headphone jack (detect on expander 0x43 P7) not handled | CONFIRMED (phase 6 bench, 2026-09-19: cues clean at a comfortable level, volume steps, no pops, no hiss at rest) |
 | Battery | 2S NP-F550 (7.4 V); INA226 monitor at 0x41; IP2326 charger, charges only while the firmware enables it | ASSUMED (schematic p5, docs) |
 | Power button | S1 to a custom-programmed PMS150G, which holds the power on; power-off = pulse on expander 0x44 P4; the PMS150G also drives GPIO 35 (behaviour undocumented) | ASSUMED (schematic p5) |
 | BOOT button | GPIO 35 (strapping pin, shared with the PMS150G); not a deep-sleep wake pin on the P4 | ASSUMED (schematic p1, p5) |
@@ -91,7 +100,10 @@ expanders' pins), the schematic sided with the board-support package.
    touch lands on the same corners either way up, flat or in portrait it
    holds, 33 fps flipped, no flashes, no panics.
 5. Docs + commit. 2026-09-19.
-6. Audio (ES8388 + NS4150B speaker amp) - next.
+6. Audio (ES8388 + NS4150B speaker amp). First bench: silent - the amp's
+   enable never rose (the expander's high-impedance default, above). PASSED
+   2026-09-19 on the second: cues clean, quiet / off / normal and the
+   settings page's volume, the tank's own cues, no pops, no hiss.
 7. Battery, charging and power (INA226, IP2326, expander 2, the power
    button's PMS150G), and sleep.
 8. RTC (RX8130CE).
