@@ -65,11 +65,7 @@ static float cell_frac(int mv) {
 }
 
 static void chg_enable(bool on) {
-    esp_io_expander_handle_t x = board_iox2();
-    if (!x) return;
-    esp_io_expander_set_level(x, TAB5_IOX2_CHG_EN, on);
-    esp_io_expander_set_output_mode(x, TAB5_IOX2_CHG_EN, IO_EXPANDER_OUTPUT_MODE_PUSH_PULL);   /* board_tab5.c iox_out */
-    esp_io_expander_set_dir(x, TAB5_IOX2_CHG_EN, IO_EXPANDER_OUTPUT);
+    if (!board_iox_out(board_iox2(), TAB5_IOX2_CHG_EN, on)) { ESP_LOGW(TAG, "charger enable (expander 2 P7) not set"); return; }
     s_chg_on = on;
 }
 bool battery_port_init(i2c_master_bus_handle_t bus) {
@@ -138,9 +134,7 @@ bool battery_port_poweroff(void) {
     esp_io_expander_handle_t x = board_iox2();
     if (!x) return false;
     ESP_LOGW(TAG, "power-off: expander 2 P4 pulsed high for 100 ms");
-    esp_io_expander_set_level(x, TAB5_IOX2_PWROFF, 0);
-    esp_io_expander_set_output_mode(x, TAB5_IOX2_PWROFF, IO_EXPANDER_OUTPUT_MODE_PUSH_PULL);
-    esp_io_expander_set_dir(x, TAB5_IOX2_PWROFF, IO_EXPANDER_OUTPUT);
+    board_iox_out(x, TAB5_IOX2_PWROFF, 0);
     esp_io_expander_set_level(x, TAB5_IOX2_PWROFF, 1);
     vTaskDelay(pdMS_TO_TICKS(100));
     esp_io_expander_set_level(x, TAB5_IOX2_PWROFF, 0);

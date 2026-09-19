@@ -133,7 +133,13 @@ static bool s_btn_used;   /* this press opened the reset prompt: no drowse, no p
 #define KEY_POLL_US       (1000000LL)         /* the grace wakes once a second to ask the PMIC about the PWR key */
 static int battery_pct(void) { float f; bool c; return battery_port_read(&f, &c) ? (int)(f * 100 + 0.5f) : -1; }
 typedef struct { float x, y, heading; uint8_t goal, valid; } fish_snap_t;
-RTC_DATA_ATTR static fish_snap_t s_snap[N_FISH_MAX]; RTC_DATA_ATTR static int s_snap_n;
+/* NOINIT, not RTC_DATA: the bootloader reloads RTC_DATA's initial values
+   on any boot it does not see as a deep-sleep wake, and the Tab5's P4 v1.3
+   reports its wake as a watchdog reset - the snapshot came back empty
+   (2026-09-19, "0 of 3 fish put back"). A magic tells a snapshot from
+   power-on garbage. */
+#define SNAP_MAGIC 0x534E4150u   /* "SNAP" */
+RTC_NOINIT_ATTR static fish_snap_t s_snap[N_FISH_MAX]; RTC_NOINIT_ATTR static int s_snap_n; RTC_NOINIT_ATTR static uint32_t s_snap_magic;
 static void snap_log(const char *what) {          /* "FeZ 156,238/explore mira ..." */
     char line[N_FISH_MAX * 40] = ""; size_t l = 0;
     for (int i = 0; i < tank.n_fish && l + 40 < sizeof line; i++)
@@ -142,7 +148,7 @@ static void snap_log(const char *what) {          /* "FeZ 156,238/explore mira .
     ESP_LOGI(TAG, "%s: %s", what, line);
 }
 static void snapshot_fish(void) {
-    s_snap_n = tank.n_fish;
+    s_snap_n = tank.n_fish; s_snap_magic = SNAP_MAGIC;
     for (int i = 0; i < tank.n_fish; i++) {
         const fish_t *f = &tank.fish[i];
         s_snap[i] = (fish_snap_t){ f->x, f->y, f->heading, (uint8_t)f->goal.id, 1 };
@@ -151,6 +157,7 @@ static void snapshot_fish(void) {
 }
 static int restore_fish(void) {
     int n = 0;
+    if (s_snap_magic != SNAP_MAGIC || s_snap_n < 0 || s_snap_n > N_FISH_MAX) s_snap_n = 0;
     for (int i = 0; i < tank.n_fish && i < s_snap_n; i++) {
         const fish_snap_t *s = &s_snap[i];
         if (!s->valid || s->x < 0 || s->x > TANK_W || s->y < 0 || s->y > TANK_H) continue;
@@ -159,7 +166,7 @@ static int restore_fish(void) {
         if (s->goal < GOAL_COUNT) f->goal.id = (goal_id_t)s->goal;
         n++;
     }
-    s_snap_n = 0;
+    s_snap_n = 0; s_snap_magic = 0;
     snap_log("wake restored");
     return n;
 }
@@ -237,6 +244,7 @@ static void deep_sleep_now(int wake_after_s) {
        (docs/boards/m5stack-tab5.md) */
     if (wake_after_s > 0) esp_sleep_enable_timer_wakeup((int64_t)wake_after_s * 1000000);
     audio_port_deep_sleep_pins();
+    board_note_deep_sleep(wake_after_s);
     /* the P4 powers its digital pads down in deep sleep: no all-pad hold
        (gpio_deep_sleep_hold_en) to take - the power phase revisits the pads */
     esp_deep_sleep_start();
@@ -598,11 +606,14 @@ void app_main(void) {
     rtc_port_init(board_i2c_bus());   /* wall clock for the ravenous rule */
     tank_init(&tank, (uint32_t)esp_timer_get_time() ^ 0xC0FFEEu);
     esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
-    bool from_sleep = cause == ESP_SLEEP_WAKEUP_EXT0 || cause == ESP_SLEEP_WAKEUP_TIMER;
+    /* the Tab5's P4 v1.3 reports its timer wake as a watchdog reset with no
+       cause: the board's own note says it was a wake (board_tab5.c) */
+    bool board_wake = board_woke_from_deep_sleep();
+    bool from_sleep = cause == ESP_SLEEP_WAKEUP_EXT0 || cause == ESP_SLEEP_WAKEUP_TIMER || board_wake;
     if (from_sleep) {                        /* the night, lived through in one step */
         float h = progression_wake(&tank, clock_port_now_unix());
         ESP_LOGI(TAG, "wake from deep sleep (%s): %s%.1f h simulated | hunger[0] %.1f | battery %d%% %d mV",
-                 cause == ESP_SLEEP_WAKEUP_TIMER ? "timer" : "BOOT", h < 0 ? "no clock, " : "", h < 0 ? 0.0f : h,
+                 cause == ESP_SLEEP_WAKEUP_TIMER || board_wake ? "timer" : "BOOT", h < 0 ? "no clock, " : "", h < 0 ? 0.0f : h,
                  tank.n_fish ? tank.fish[0].hunger : 0.0f, battery_pct(), battery_port_vbat_mv());
         batlog_add(battery_pct(), battery_port_vbat_mv(), 0, true, "wake");
         int put_back = restore_fish();       /* where they fell asleep, on the goal they had */

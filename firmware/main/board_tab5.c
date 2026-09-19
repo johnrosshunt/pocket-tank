@@ -9,6 +9,10 @@
 #include "esp_flash.h"
 #include "esp_heap_caps.h"
 #include "esp_psram.h"
+#include "esp_system.h"
+#include "esp_sleep.h"
+#include "esp_rtc_time.h"
+#include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -34,6 +38,29 @@ static const char *who(uint8_t a) {
     }
 }
 
+/* the deep-sleep note (phase 7 bench, 2026-09-19): this P4 v1.3 wakes from
+ * deep sleep reporting a watchdog reset (ROM rst:0x7, "other watchdog") and
+ * no wake cause - the same label a power-key boot after a power-off gets.
+ * So the firmware keeps its own note: the requested length and the LP timer
+ * (it runs through deep sleep) in memory deep sleep keeps. The next boot
+ * logs how long it was gone and board_woke_from_deep_sleep() says it was a
+ * wake; a power cut restarts the LP timer, which the note tells apart */
+#define SLEEP_NOTE_MAGIC 0x534C5054u   /* "SLPT" */
+static RTC_NOINIT_ATTR struct { uint32_t magic; int32_t asked_s; uint64_t at_us; } s_sleep_note;
+void board_note_deep_sleep(int seconds) {
+    s_sleep_note.magic = SLEEP_NOTE_MAGIC; s_sleep_note.asked_s = seconds; s_sleep_note.at_us = esp_rtc_get_time_us();
+}
+static bool s_woke;
+bool board_woke_from_deep_sleep(void) { return s_woke; }
+static void log_sleep_note(void) {
+    if (s_sleep_note.magic != SLEEP_NOTE_MAGIC) return;
+    uint64_t now = esp_rtc_get_time_us();
+    s_sleep_note.magic = 0;
+    if (now < s_sleep_note.at_us) { ESP_LOGI(TAG, "last deep sleep (%d s asked): the LP timer restarted - a power cut, not a wake", (int)s_sleep_note.asked_s); return; }
+    ESP_LOGI(TAG, "last deep sleep: %d s asked, back after %.1f s (LP timer)", (int)s_sleep_note.asked_s, (now - s_sleep_note.at_us) / 1e6);
+    s_woke = true;                     /* 60 s asked -> 62.1 s, 20 -> 22.2 on the bench: the timer's wake, whatever the ROM calls it */
+}
+
 static void log_chip(void) {
     esp_chip_info_t ci; esp_chip_info(&ci);
     uint32_t flash = 0; esp_flash_get_size(NULL, &flash);
@@ -41,6 +68,15 @@ static void log_chip(void) {
              ci.revision / 100, ci.revision % 100, ci.cores, (unsigned long)(flash >> 20),
              (unsigned)(esp_psram_get_size() >> 20), (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) >> 10),
              (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) >> 10));
+    /* why this boot - here, because a monitor that reattaches after a
+       deep-sleep wake misses the ROM's rst: line */
+    static const char *const why[] = { "unknown", "power-on", "external pin", "software", "panic", "interrupt watchdog",
+                                       "task watchdog", "other watchdog", "DEEP-SLEEP WAKE", "brownout", "SDIO", "USB",
+                                       "JTAG", "eFuse", "power glitch", "CPU lockup" };
+    esp_reset_reason_t r = esp_reset_reason();
+    ESP_LOGI(TAG, "boot reason: %s (%d), sleep wake cause %d", (unsigned)r < sizeof why / sizeof why[0] ? why[r] : "?", (int)r,
+             (int)esp_sleep_get_wakeup_cause());
+    log_sleep_note();
 }
 
 static void scan(void) {
@@ -56,17 +92,21 @@ static void scan(void) {
     ESP_LOGI(TAG, "i2c scan: %d devices, %d of %d expected missing", n, missing, (int)sizeof want);
 }
 
-/* an output pin at a level; a failure is logged, not fatal. The
- * PI4IOE5V6408 powers up with every output in HIGH-IMPEDANCE (register 0x07
- * = 0xFF) and a pull-down on every pin, and the driver's set_dir does not
- * touch that register: an "output" set high stays low until it is made
- * push-pull (the silent speaker amp, phase 6 bench 2026-09-19) */
+/* an expander pin driven to a level (board_tab5.h). The PI4IOE5V6408 powers
+ * up with every output in HIGH-IMPEDANCE (register 0x07 = 0xFF) and a
+ * pull-down on every pin, and the driver's set_dir does not touch that
+ * register: an "output" set high stays low until it is made push-pull (the
+ * silent speaker amp, phase 6 bench 2026-09-19). And the driver refuses a
+ * level on a pin that is an input (the LCD reset, released as an input:
+ * "can't set level in input mode", phase 7 bench): so push-pull, output,
+ * THEN the level. */
+bool board_iox_out(esp_io_expander_handle_t x, uint32_t pin, int level) {
+    return x && esp_io_expander_set_output_mode(x, pin, IO_EXPANDER_OUTPUT_MODE_PUSH_PULL) == ESP_OK &&
+           esp_io_expander_set_dir(x, pin, IO_EXPANDER_OUTPUT) == ESP_OK &&
+           esp_io_expander_set_level(x, pin, level) == ESP_OK;
+}
 static void iox_out(esp_io_expander_handle_t x, uint32_t pin, int level, const char *what) {
-    if (!x) return;
-    if (esp_io_expander_set_level(x, pin, level) != ESP_OK ||
-        esp_io_expander_set_output_mode(x, pin, IO_EXPANDER_OUTPUT_MODE_PUSH_PULL) != ESP_OK ||
-        esp_io_expander_set_dir(x, pin, IO_EXPANDER_OUTPUT) != ESP_OK)
-        ESP_LOGW(TAG, "expander: %s failed", what);
+    if (x && !board_iox_out(x, pin, level)) ESP_LOGW(TAG, "expander: %s failed", what);
 }
 
 bool board_init(void) {

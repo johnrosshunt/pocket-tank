@@ -76,5 +76,11 @@
 bool board_init(void);
 i2c_master_bus_handle_t board_i2c_bus(void);
 esp_io_expander_handle_t board_iox1(void);   /* 0x43, NULL if absent */
-esp_io_expander_handle_t board_iox2(void);   /* 0x44, NULL if absent */
+esp_io_expander_handle_t board_iox2(void);
+/* drive an expander pin: push-pull, output, then the level (board_tab5.c) */
+bool board_iox_out(esp_io_expander_handle_t x, uint32_t pin, int level);
+/* just before esp_deep_sleep_start: the next boot logs how long it was gone */
+void board_note_deep_sleep(int seconds);
+/* this boot is that sleep's wake (the P4 v1.3 reports it as a watchdog reset) */
+bool board_woke_from_deep_sleep(void);   /* 0x44, NULL if absent */
 #endif

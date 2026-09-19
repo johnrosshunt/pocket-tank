@@ -32,6 +32,9 @@
 static const char *TAG = "display";
 #define BL_CH LEDC_CHANNEL_1
 static esp_lcd_panel_handle_t s_panel;
+static esp_lcd_panel_io_handle_t s_io;
+static esp_lcd_dsi_bus_handle_t s_bus;
+static esp_ldo_channel_handle_t s_ldo;
 static uint16_t *s_fbs[2];                 /* the DPI panel's own frame buffers (PSRAM), native portrait */
 static uint16_t *s_fb;                     /* the one on the glass (the bench pattern draws here) */
 static int s_front;                        /* s_fbs[s_front] is on the glass, or will be by the next frame */
@@ -209,9 +212,8 @@ bool display_port_init(void) {
         esp_io_expander_set_dir(x, TAB5_IOX1_LCD_RST, IO_EXPANDER_INPUT) != ESP_OK)
         ESP_LOGW(TAG, "LCD reset release on expander 1 P4 failed");
     backlight_init();
-    esp_ldo_channel_handle_t ldo;
     esp_ldo_channel_config_t ldo_cfg = { .chan_id = TAB5_DSI_PHY_LDO, .voltage_mv = TAB5_DSI_PHY_MV };
-    if (esp_ldo_acquire_channel(&ldo_cfg, &ldo) != ESP_OK) { ESP_LOGE(TAG, "DSI PHY LDO %d failed", TAB5_DSI_PHY_LDO); return false; }
+    if (esp_ldo_acquire_channel(&ldo_cfg, &s_ldo) != ESP_OK) { ESP_LOGE(TAG, "DSI PHY LDO %d failed", TAB5_DSI_PHY_LDO); s_ldo = NULL; return false; }
     vTaskDelay(pdMS_TO_TICKS(500));                   /* the BSP's settle before it asks the touch half */
     int fw = touch_fw_version();
     if (fw == 3)       ESP_LOGI(TAG, "touch 0x55 answers, firmware 3: ST7123 panel");
@@ -219,12 +221,10 @@ bool display_port_init(void) {
     else if (fw < 0)   ESP_LOGW(TAG, "touch 0x55 does not answer: panel version unknown, initialising as ST7123");
     else               ESP_LOGW(TAG, "touch 0x55 firmware %d: unknown panel version, initialising as ST7123", fw);
 
-    esp_lcd_dsi_bus_handle_t bus;
     esp_lcd_dsi_bus_config_t bus_cfg = { .bus_id = 0, .num_data_lanes = TAB5_DSI_LANES, .lane_bit_rate_mbps = TAB5_DSI_LANE_MBPS };
-    if (esp_lcd_new_dsi_bus(&bus_cfg, &bus) != ESP_OK) { ESP_LOGE(TAG, "DSI bus failed"); return false; }
-    esp_lcd_panel_io_handle_t io;
+    if (esp_lcd_new_dsi_bus(&bus_cfg, &s_bus) != ESP_OK) { ESP_LOGE(TAG, "DSI bus failed"); return false; }
     esp_lcd_dbi_io_config_t dbi = { .virtual_channel = 0, .lcd_cmd_bits = 8, .lcd_param_bits = 8 };
-    if (esp_lcd_new_panel_io_dbi(bus, &dbi, &io) != ESP_OK) { ESP_LOGE(TAG, "DBI IO failed"); return false; }
+    if (esp_lcd_new_panel_io_dbi(s_bus, &dbi, &s_io) != ESP_OK) { ESP_LOGE(TAG, "DBI IO failed"); return false; }
     const esp_lcd_dpi_panel_config_t dpi = {
         .virtual_channel = 0, .dpi_clk_src = MIPI_DSI_DPI_CLK_SRC_DEFAULT, .dpi_clock_freq_mhz = TAB5_DPI_CLK_MHZ,
         .in_color_format = LCD_COLOR_FMT_RGB565, .num_fbs = 2,
@@ -233,21 +233,22 @@ bool display_port_init(void) {
                           .vsync_back_porch = 8, .vsync_pulse_width = 2, .vsync_front_porch = 220 },
     };
     const st7123_vendor_config_t vendor = { .init_cmds = st7123_init, .init_cmds_size = sizeof st7123_init / sizeof st7123_init[0],
-                                            .mipi_config = { .dsi_bus = bus, .dpi_config = &dpi } };
+                                            .mipi_config = { .dsi_bus = s_bus, .dpi_config = &dpi } };
     const esp_lcd_panel_dev_config_t pcfg = { .reset_gpio_num = -1, .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,
                                               .bits_per_pixel = 16, .vendor_config = (void *)&vendor };
-    if (esp_lcd_new_panel_st7123(io, &pcfg, &s_panel) != ESP_OK) { ESP_LOGE(TAG, "ST7123 panel failed"); return false; }
+    if (esp_lcd_new_panel_st7123(s_io, &pcfg, &s_panel) != ESP_OK) { ESP_LOGE(TAG, "ST7123 panel failed"); return false; }
     esp_lcd_panel_reset(s_panel);
     esp_lcd_panel_init(s_panel);
     esp_lcd_panel_disp_on_off(s_panel, true);
     if (esp_lcd_dpi_panel_get_frame_buffer(s_panel, 2, (void **)&s_fbs[0], (void **)&s_fbs[1]) != ESP_OK || !s_fbs[0] || !s_fbs[1]) {
         ESP_LOGE(TAG, "no frame buffers"); return false; }
     s_fb = s_fbs[0]; s_front = 0;
-    s_swapped = xSemaphoreCreateBinary();
+    if (!s_swapped) s_swapped = xSemaphoreCreateBinary();
+    s_armed = false; s_pending = false; s_done_us = 0;
     const esp_lcd_dpi_panel_event_callbacks_t cbs = { .on_frame_buf_complete = on_frame_done };
     if (!s_swapped || esp_lcd_dpi_panel_register_event_callbacks(s_panel, &cbs, NULL) != ESP_OK) { ESP_LOGE(TAG, "frame-done callback failed"); return false; }
     const ppa_client_config_t ppa_cfg = { .oper_type = PPA_OPERATION_SRM, .max_pending_trans_num = 1 };
-    if (ppa_register_client(&ppa_cfg, &s_ppa) != ESP_OK) { ESP_LOGE(TAG, "PPA client failed: no frames"); s_ppa = NULL; }
+    if (!s_ppa && ppa_register_client(&ppa_cfg, &s_ppa) != ESP_OK) { ESP_LOGE(TAG, "PPA client failed: no frames"); s_ppa = NULL; }
     const int ht = TAB5_PANEL_W + 40 + 2 + 40, vt = TAB5_PANEL_H + 8 + 2 + 220;
     ESP_LOGI(TAG, "panel up: %d x %d native, %d lanes x %d Mbps, %d MHz pixel clock (%.1f Hz refresh), backlight PWM %lu Hz",
              TAB5_PANEL_W, TAB5_PANEL_H, TAB5_DSI_LANES, TAB5_DSI_LANE_MBPS, TAB5_DPI_CLK_MHZ,
@@ -301,8 +302,34 @@ void display_port_flush(const uint16_t *fb) {
     s_front = back; s_fb = s_fbs[back];
     s_flushes++;
 }
-void display_port_sleep(void) { backlight(0); if (s_panel) esp_lcd_panel_disp_on_off(s_panel, false); }
-void display_port_wake(void) { if (s_panel) esp_lcd_panel_disp_on_off(s_panel, true); backlight(s_brightness); }
+/* sleep: the whole pipeline down, not just the picture. With the panel only
+ * blanked, its DPI DMA kept streaming the frame buffer out of PSRAM through
+ * the light-sleep grace (`lcd.dsi: ... underrun`) and the deep-sleep entry
+ * then hung until a watchdog reset (phase 7 bench, 2026-09-19). So: panel
+ * off, the DPI panel deleted (its DMA stopped, its frame buffers freed), the
+ * DBI IO and the DSI bus deleted, the PHY's LDO released, and the panel held
+ * in reset on expander 1 P4. Wake builds it all again (display_port_init). */
+void display_port_sleep(void) {
+    backlight(0);
+    if (!s_panel) return;
+    s_hold = true;                                   /* the tank task is ours now; no flush lands */
+    wait_swap();
+    esp_lcd_panel_disp_on_off(s_panel, false);
+    esp_lcd_panel_del(s_panel); s_panel = NULL;
+    s_fbs[0] = s_fbs[1] = s_fb = NULL;
+    if (s_io) { esp_lcd_panel_io_del(s_io); s_io = NULL; }
+    if (s_bus) { esp_lcd_del_dsi_bus(s_bus); s_bus = NULL; }
+    if (s_ldo) { esp_ldo_release_channel(s_ldo); s_ldo = NULL; }
+    esp_io_expander_handle_t x = board_iox1();
+    if (!board_iox_out(x, TAB5_IOX1_LCD_RST, 0)) ESP_LOGW(TAG, "LCD reset: could not assert it");
+    ESP_LOGI(TAG, "panel down: DPI stopped, DSI bus and PHY power off, LCD held in reset");
+}
+void display_port_wake(void) {
+    if (s_panel) { backlight(s_brightness); return; }
+    bool ok = display_port_init();                   /* releases LCD reset, rebuilds bus, IO and panel */
+    s_hold = false;
+    ESP_LOGI(TAG, "panel %s", ok ? "back up" : "FAILED to come back");
+}
 void display_port_set_inverted(bool inverted) { s_inverted = inverted; }
 void display_port_set_brightness(uint8_t level) {
     if (level != s_brightness) ESP_LOGI(TAG, "backlight %d -> %d /255", s_brightness, level);   /* the flash hunt */

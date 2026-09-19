@@ -109,10 +109,19 @@ the speaker played.
    table rows above. PASSED 2026-09-19 on the second: the gauge, the card's
    charging pill (it follows the charger off and on, and the cable out and
    in; the IP2326 takes a few seconds to start after it is enabled), the
-   staged low-battery notice, `poweroff`. OPEN: `deepsleep 30` never slept -
-   the panel's DPI DMA kept streaming from PSRAM through the light-sleep
-   grace (`lcd.dsi: ... underrun`), and the board came back 30 s later by a
-   watchdog reset (`HP_SYS_HP_WDT_RESET`), not the timer.
+   staged low-battery notice, `poweroff`. Sleep, in three more benches:
+   the panel only blanked for sleep let its DPI DMA stream from PSRAM
+   through the light-sleep grace (`lcd.dsi: ... underrun`) - now the whole
+   pipeline goes down (panel, DPI, DSI bus, PHY LDO, LCD held in reset) and
+   comes back through display_port_init. Deep sleep then works: this P4
+   v1.3 reports the timer's wake as a WATCHDOG reset (ROM `rst:0x7`,
+   "other watchdog", no wake cause), so the firmware keeps its own note in
+   RTC_NOINIT memory with the LP timer - 60 s asked, back after 62.1 s;
+   20 s, 22.2 s - and treats that boot as the wake. And because the
+   bootloader re-initialises RTC_DATA on a boot it does not see as a wake,
+   the fish snapshot moved to RTC_NOINIT (with a magic): 3 of 3 fish back
+   where they fell asleep. PASSED 2026-09-19. The time asleep reads "no
+   clock" until phase 8 (the RX8130CE; the clock port knows a PCF85063).
 8. RTC (RX8130CE).
 9. The model on the P4 (its SIMD path is S3-only: 16.8 s per decision).
 

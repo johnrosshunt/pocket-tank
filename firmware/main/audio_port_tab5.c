@@ -154,9 +154,7 @@ bool audio_port_init(i2c_master_bus_handle_t bus) {
     if (bank_bytes != SND_BANK_BYTES) { ESP_LOGW(TAG, "bank is %u bytes, sounds.h says %u: rebuild (tools/make_sounds.py build) - silent", (unsigned)bank_bytes, (unsigned)SND_BANK_BYTES); return false; }
     if (!codec_port_present()) { ESP_LOGW(TAG, "no ES8388: silent"); return false; }
     esp_io_expander_handle_t x = board_iox1();
-    if (!x || esp_io_expander_set_output_mode(x, TAB5_IOX1_SPK_EN, IO_EXPANDER_OUTPUT_MODE_PUSH_PULL) != ESP_OK   /* see board_tab5.c iox_out */
-           || esp_io_expander_set_dir(x, TAB5_IOX1_SPK_EN, IO_EXPANDER_OUTPUT) != ESP_OK) { ESP_LOGW(TAG, "no speaker amp enable (expander 1): silent"); return false; }
-    amp(false);
+    if (!board_iox_out(x, TAB5_IOX1_SPK_EN, 0)) { ESP_LOGW(TAG, "no speaker amp enable (expander 1): silent"); return false; }
     i2s_chan_config_t cc = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
     cc.dma_desc_num = 4; cc.dma_frame_num = BLOCK;
     if (i2s_new_channel(&cc, &s_tx, NULL) != ESP_OK) { ESP_LOGE(TAG, "no I2S channel"); return false; }
