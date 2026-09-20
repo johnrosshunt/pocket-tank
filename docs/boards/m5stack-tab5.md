@@ -131,9 +131,14 @@ the speaker played.
    of 16.8 (14.2 tok/s from 2.5); the kernel bench 7,056 us from 164,654.
    ESP-IDF already builds this target with the extension - a per-component
    -march overrode the ABI's and crashed on double-precision instructions.
-9b. The frame rate: the PPA's turn-and-scale costs 17.6 ms of every frame,
-   so ~35 fps is this port's ceiling and a grown tank (tall canopies,
-   filmed glass) renders in 11 ms for ~30 fps.
+9b. The frame rate. The PPA's turn-and-scale used to cost 17.6 ms of every
+   frame because the flush waited for it; now it runs while the tank
+   renders the next frame, into a third panel frame buffer (with two, the
+   flush had to wait out a panel frame to reuse one). PASSED 2026-09-19:
+   34-39 fps from 30, the flush 0.8-2.2 ms from 17.6, 0.28 ms of it waiting
+   for the PPA, no tearing, 0 of 22,342 panel frames off period. What is
+   left is the renderer itself: 18-21 ms for a grown tank (veg 7.4, fish
+   8.5, algae 2.4). The picture is one frame (~20 ms) older than it was.
 
 ## Build and flash
 

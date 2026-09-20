@@ -35,15 +35,23 @@ static esp_lcd_panel_handle_t s_panel;
 static esp_lcd_panel_io_handle_t s_io;
 static esp_lcd_dsi_bus_handle_t s_bus;
 static esp_ldo_channel_handle_t s_ldo;
-static uint16_t *s_fbs[2];                 /* the DPI panel's own frame buffers (PSRAM), native portrait */
+/* THREE of the DPI panel's own frame buffers (PSRAM, native portrait): one
+ * on the glass, one handed over and waiting for the frame boundary, one for
+ * the PPA to turn and scale into. With two, a flush had to wait out a panel
+ * frame before it could reuse a buffer - 15 ms of every frame (2026-09-19). */
+#define PANEL_FBS 3
+static uint16_t *s_fbs[PANEL_FBS];
 static uint16_t *s_fb;                     /* the one on the glass (the bench pattern draws here) */
-static int s_front;                        /* s_fbs[s_front] is on the glass, or will be by the next frame */
+static int s_front;                        /* on the glass */
+static int s_queued = -1;                  /* handed to the panel, swapping in at the next frame boundary */
 static ppa_client_handle_t s_ppa;
 static SemaphoreHandle_t s_swapped;        /* given once the DMA has moved to the last drawn buffer */
 static volatile bool s_armed;              /* a swap is asked for: the next frame-complete answers it */
 static bool s_pending;                     /* a swap was asked for and not yet waited on */
 static volatile bool s_hold;               /* `disp test` owns the glass: flushes are dropped */
-static uint32_t s_flushes, s_swap_waits_ms, s_ppa_us;
+static uint32_t s_flushes, s_swap_waits_us, s_ppa_waits_us;
+static SemaphoreHandle_t s_ppa_done;       /* the scale runs while the tank renders the next frame */
+static bool s_ppa_pending; static int s_ppa_back;
 /* the flash hunt (phase 3 bench, 2026-09-18): every frame the DPI DMA
  * finishes is timed; one far off the 15.1 ms period is logged with its
  * time, to line up with a flash seen on the glass */
@@ -192,6 +200,24 @@ static bool IRAM_ATTR on_frame_done(esp_lcd_panel_handle_t panel, esp_lcd_dpi_pa
 }
 /* the last swap has happened (or 100 ms passed: a stalled panel must not
  * stall the tank) - the buffer off the glass may be drawn */
+static bool IRAM_ATTR on_ppa_done(ppa_client_handle_t c, ppa_event_data_t *e, void *ctx) {
+    (void)c; (void)e; (void)ctx;
+    BaseType_t woken = pdFALSE;
+    xSemaphoreGiveFromISR(s_ppa_done, &woken);
+    return woken == pdTRUE;
+}
+/* the scale started by the last flush, finished (or 100 ms gone) */
+static bool wait_ppa(void) {
+    if (!s_ppa_pending) return false;
+    int64_t t0 = esp_timer_get_time();
+    if (xSemaphoreTake(s_ppa_done, pdMS_TO_TICKS(100)) != pdTRUE) {
+        static int logged;
+        if (logged++ < 3) ESP_LOGW(TAG, "the PPA did not finish in 100 ms");
+    }
+    s_ppa_waits_us += (uint32_t)(esp_timer_get_time() - t0);
+    s_ppa_pending = false;
+    return true;
+}
 static void wait_swap(void) {
     if (!s_pending) return;
     int64_t t0 = esp_timer_get_time();
@@ -199,7 +225,7 @@ static void wait_swap(void) {
         static int logged;
         if (logged++ < 3) ESP_LOGW(TAG, "frame swap not seen in 100 ms");
     }
-    s_swap_waits_ms += (uint32_t)((esp_timer_get_time() - t0) / 1000);
+    s_swap_waits_us += (uint32_t)(esp_timer_get_time() - t0);
     s_pending = false;
 }
 
@@ -227,7 +253,7 @@ bool display_port_init(void) {
     if (esp_lcd_new_panel_io_dbi(s_bus, &dbi, &s_io) != ESP_OK) { ESP_LOGE(TAG, "DBI IO failed"); return false; }
     const esp_lcd_dpi_panel_config_t dpi = {
         .virtual_channel = 0, .dpi_clk_src = MIPI_DSI_DPI_CLK_SRC_DEFAULT, .dpi_clock_freq_mhz = TAB5_DPI_CLK_MHZ,
-        .in_color_format = LCD_COLOR_FMT_RGB565, .num_fbs = 2,
+        .in_color_format = LCD_COLOR_FMT_RGB565, .num_fbs = PANEL_FBS,
         .video_timing = { .h_size = TAB5_PANEL_W, .v_size = TAB5_PANEL_H,
                           .hsync_back_porch = 40, .hsync_pulse_width = 2, .hsync_front_porch = 40,
                           .vsync_back_porch = 8, .vsync_pulse_width = 2, .vsync_front_porch = 220 },
@@ -240,22 +266,27 @@ bool display_port_init(void) {
     esp_lcd_panel_reset(s_panel);
     esp_lcd_panel_init(s_panel);
     esp_lcd_panel_disp_on_off(s_panel, true);
-    if (esp_lcd_dpi_panel_get_frame_buffer(s_panel, 2, (void **)&s_fbs[0], (void **)&s_fbs[1]) != ESP_OK || !s_fbs[0] || !s_fbs[1]) {
-        ESP_LOGE(TAG, "no frame buffers"); return false; }
-    s_fb = s_fbs[0]; s_front = 0;
+    if (esp_lcd_dpi_panel_get_frame_buffer(s_panel, PANEL_FBS, (void **)&s_fbs[0], (void **)&s_fbs[1], (void **)&s_fbs[2]) != ESP_OK
+        || !s_fbs[0] || !s_fbs[1] || !s_fbs[2]) { ESP_LOGE(TAG, "no frame buffers"); return false; }
+    s_fb = s_fbs[0]; s_front = 0; s_queued = -1;
     if (!s_swapped) s_swapped = xSemaphoreCreateBinary();
+    if (!s_ppa_done) s_ppa_done = xSemaphoreCreateBinary();
+    s_ppa_pending = false;
     s_armed = false; s_pending = false; s_done_us = 0;
     const esp_lcd_dpi_panel_event_callbacks_t cbs = { .on_frame_buf_complete = on_frame_done };
     if (!s_swapped || esp_lcd_dpi_panel_register_event_callbacks(s_panel, &cbs, NULL) != ESP_OK) { ESP_LOGE(TAG, "frame-done callback failed"); return false; }
     const ppa_client_config_t ppa_cfg = { .oper_type = PPA_OPERATION_SRM, .max_pending_trans_num = 1 };
     if (!s_ppa && ppa_register_client(&ppa_cfg, &s_ppa) != ESP_OK) { ESP_LOGE(TAG, "PPA client failed: no frames"); s_ppa = NULL; }
+    const ppa_event_callbacks_t ppa_cbs = { .on_trans_done = on_ppa_done };
+    if (s_ppa && ppa_client_register_event_callbacks(s_ppa, &ppa_cbs) != ESP_OK) { ESP_LOGE(TAG, "PPA callback failed"); }
     const int ht = TAB5_PANEL_W + 40 + 2 + 40, vt = TAB5_PANEL_H + 8 + 2 + 220;
     ESP_LOGI(TAG, "panel up: %d x %d native, %d lanes x %d Mbps, %d MHz pixel clock (%.1f Hz refresh), backlight PWM %lu Hz",
              TAB5_PANEL_W, TAB5_PANEL_H, TAB5_DSI_LANES, TAB5_DSI_LANE_MBPS, TAB5_DPI_CLK_MHZ,
              TAB5_DPI_CLK_MHZ * 1e6 / ((double)ht * vt), (unsigned long)s_bl_hz);
-    for (int i = 0; i < 2; i++) { memset(s_fbs[i], 0, PANEL_FB_BYTES); esp_cache_msync(s_fbs[i], PANEL_FB_BYTES, ESP_CACHE_MSYNC_FLAG_DIR_C2M); }
+    for (int i = 0; i < PANEL_FBS; i++) { memset(s_fbs[i], 0, PANEL_FB_BYTES); esp_cache_msync(s_fbs[i], PANEL_FB_BYTES, ESP_CACHE_MSYNC_FLAG_DIR_C2M); }
     backlight(s_brightness);
-    ESP_LOGI(TAG, "frames: %d x %d tank -> PPA 2x + quarter turn -> %d x %d panel, two frame buffers", TANK_W, TANK_H, TAB5_PANEL_W, TAB5_PANEL_H);
+    ESP_LOGI(TAG, "frames: %d x %d tank -> PPA 2x + quarter turn -> %d x %d panel, %d frame buffers (the scale runs while the tank renders)",
+             TANK_W, TANK_H, TAB5_PANEL_W, TAB5_PANEL_H, PANEL_FBS);
     return true;
 }
 
@@ -269,9 +300,29 @@ void display_port_flush(const uint16_t *fb) {
         ESP_LOGW(TAG, "frame timing: a frame took %.1f ms (period 15.1) at %.3f s - %lu so far",
                  s_odd_us / 1000.0, s_odd_at_us / 1e6, (unsigned long)s_odd);
     }
-    if (!s_panel || !s_ppa || !fb || s_hold) return;
-    wait_swap();
-    int back = s_front ^ 1;
+    if (!s_panel || !s_ppa || !fb) return;
+    if (s_hold) { wait_ppa(); return; }                /* `disp test` owns the glass */
+    /* 1. the scale started by the last flush is done by now (it ran while
+       the tank ticked and rendered this frame): that buffer goes up */
+    if (wait_ppa()) {
+        xSemaphoreTake(s_swapped, 0);                  /* nothing stale */
+        esp_err_t e = esp_lcd_panel_draw_bitmap(s_panel, 0, 0, TAB5_PANEL_W, TAB5_PANEL_H, s_fbs[s_ppa_back]);
+        if (e != ESP_OK) {
+            static int logged;
+            if (logged++ < 3) ESP_LOGE(TAG, "draw_bitmap: %s", esp_err_to_name(e));
+        } else {
+            s_armed = true; s_pending = true;
+            if (s_queued >= 0) s_front = s_queued;     /* the one handed over before is on the glass by now */
+            s_queued = s_ppa_back; s_fb = s_fbs[s_ppa_back];
+            s_flushes++;
+        }
+    }
+    /* 2. the third buffer - neither on the glass nor waiting to go on it -
+       takes this frame, turned and scaled, while the tank renders the next.
+       Changing the panel's buffer mid-frame only decides what the NEXT frame
+       reads, so nothing tears. */
+    int back = 0;
+    while (back == s_front || back == s_queued) back++;   /* the one that is neither */
     const ppa_srm_oper_config_t op = {
         .in = { .buffer = fb, .pic_w = TANK_W, .pic_h = TANK_H, .block_w = TANK_W, .block_h = TANK_H,
                 .block_offset_x = 0, .block_offset_y = 0, .srm_cm = PPA_SRM_COLOR_MODE_RGB565 },
@@ -280,39 +331,21 @@ void display_port_flush(const uint16_t *fb) {
         /* counter-clockwise: 90 takes view (u, v) to native (v, 1279 - u) */
         .rotation_angle = s_inverted ? PPA_SRM_ROTATION_ANGLE_270 : PPA_SRM_ROTATION_ANGLE_90,
         .scale_x = 2.0f, .scale_y = 2.0f,
-        .mode = PPA_TRANS_MODE_BLOCKING,
+        .mode = PPA_TRANS_MODE_NON_BLOCKING,
     };
-    int64_t t0 = esp_timer_get_time();
     esp_err_t err = ppa_do_scale_rotate_mirror(s_ppa, &op);
-    s_ppa_us += (uint32_t)(esp_timer_get_time() - t0);
     if (err != ESP_OK) {
         static int logged;
         if (logged++ < 3) ESP_LOGE(TAG, "PPA: %s", esp_err_to_name(err));
         return;
     }
-    xSemaphoreTake(s_swapped, 0);                  /* nothing stale */
-    /* one of the panel's own buffers: the driver only points the DMA at it */
-    err = esp_lcd_panel_draw_bitmap(s_panel, 0, 0, TAB5_PANEL_W, TAB5_PANEL_H, s_fbs[back]);
-    if (err != ESP_OK) {
-        static int logged;
-        if (logged++ < 3) ESP_LOGE(TAG, "draw_bitmap: %s", esp_err_to_name(err));
-        return;
-    }
-    s_armed = true; s_pending = true;
-    s_front = back; s_fb = s_fbs[back];
-    s_flushes++;
+    s_ppa_back = back; s_ppa_pending = true;
 }
-/* sleep: the whole pipeline down, not just the picture. With the panel only
- * blanked, its DPI DMA kept streaming the frame buffer out of PSRAM through
- * the light-sleep grace (`lcd.dsi: ... underrun`) and the deep-sleep entry
- * then hung until a watchdog reset (phase 7 bench, 2026-09-19). So: panel
- * off, the DPI panel deleted (its DMA stopped, its frame buffers freed), the
- * DBI IO and the DSI bus deleted, the PHY's LDO released, and the panel held
- * in reset on expander 1 P4. Wake builds it all again (display_port_init). */
 void display_port_sleep(void) {
     backlight(0);
     if (!s_panel) return;
     s_hold = true;                                   /* the tank task is ours now; no flush lands */
+    wait_ppa();
     wait_swap();
     esp_lcd_panel_disp_on_off(s_panel, false);
     esp_lcd_panel_del(s_panel); s_panel = NULL;
@@ -370,9 +403,9 @@ void display_port_director(int argc, char **argv) {
     }
     ESP_LOGI(TAG, "disp: ST7123, %d lanes x %d Mbps, %d MHz pixel clock | backlight %s %lu Hz, level %d/255 | `disp bl <hz>|steady|pwm`, `disp test`",
              TAB5_DSI_LANES, TAB5_DSI_LANE_MBPS, TAB5_DPI_CLK_MHZ, s_bl_ready ? "PWM" : "steady (no PWM)", (unsigned long)s_bl_hz, s_brightness);
-    ESP_LOGI(TAG, "disp: %lu frames flushed; PPA %.2f ms each; waits for the swap %.2f ms each%s%s",
-             (unsigned long)s_flushes, s_flushes ? s_ppa_us / 1000.0 / s_flushes : 0.0,
-             s_flushes ? (double)s_swap_waits_ms / s_flushes : 0.0, s_inverted ? " | flipped" : "", s_hold ? " | HOLD" : "");
+    ESP_LOGI(TAG, "disp: %lu frames flushed; the flush waits %.2f ms for the PPA and %.2f ms for the swap (the scale runs while the tank renders)%s%s",
+             (unsigned long)s_flushes, s_flushes ? s_ppa_waits_us / 1000.0 / s_flushes : 0.0,
+             s_flushes ? s_swap_waits_us / 1000.0 / s_flushes : 0.0, s_inverted ? " | flipped" : "", s_hold ? " | HOLD" : "");
     ESP_LOGI(TAG, "disp: panel frames %lu, longest %.1f ms, %lu off the 15.1 ms period | `disp hold on|off`",
              (unsigned long)s_frames_done, s_gap_max_us / 1000.0, (unsigned long)s_odd);
 }
