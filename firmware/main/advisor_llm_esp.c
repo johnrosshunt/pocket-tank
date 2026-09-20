@@ -64,6 +64,9 @@ bool advisor_llm_esp_init(const uint8_t *model_bin, size_t model_len, const uint
         ESP_LOGE(TAG, "bad model/tokenizer"); return false;
     }
     q4_clock_us = esp_timer_get_time;        /* per-stage inference profiling */
+    { int bad = q4_kernel_selfcheck();
+      if (bad) ESP_LOGE(TAG, "kernel self-check: %d mismatch(es) against the C reference - the model's numbers are WRONG", bad);
+      else ESP_LOGI(TAG, "kernel self-check: the group-dot kernels match the C reference"); }
     /* one-time kernel/memory bench on boot (numbers for docs/bringup step 9) */
     q4_model_t *bm = advisor_core_model();
     ESP_LOGI(TAG, "bench: dot100k %lld us | batch44 flash %lld us ram %lld us | decode flash %lld us ram %lld us",

@@ -125,10 +125,15 @@ the speaker played.
 8. RTC (RX8130CE). PASSED 2026-09-19: the clock runs, survives a reboot,
    a deep sleep and a power-off with the cable out; the tank lives through
    the time it was away (`cold boot: 0.1 h lived through`).
-9. The model on the P4 (its SIMD path is S3-only: 16.8 s per decision), and
-   the frame rate: the PPA's turn-and-scale costs 17.6 ms of every frame, so
-   ~35 fps is this port's ceiling and a grown tank (tall canopies, filmed
-   glass) renders in 11 ms for ~30 fps.
+9a. The model on the P4's own 128-bit PIE unit (the RISC-V "xesppie"
+   extension, q4_model.c). PASSED 2026-09-19: the on-device kernel
+   self-check matches the C reference, and a decision takes 3.03 s instead
+   of 16.8 (14.2 tok/s from 2.5); the kernel bench 7,056 us from 164,654.
+   ESP-IDF already builds this target with the extension - a per-component
+   -march overrode the ABI's and crashed on double-precision instructions.
+9b. The frame rate: the PPA's turn-and-scale costs 17.6 ms of every frame,
+   so ~35 fps is this port's ceiling and a grown tank (tall canopies,
+   filmed glass) renders in 11 ms for ~30 fps.
 
 ## Build and flash
 

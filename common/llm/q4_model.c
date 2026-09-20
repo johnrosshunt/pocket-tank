@@ -15,7 +15,105 @@
 #ifdef ESP_PLATFORM
 #include "sdkconfig.h"
 #endif
-#if defined(CONFIG_IDF_TARGET_ESP32S3) && !defined(POCKET_TANK_NO_PIE)
+#if defined(CONFIG_IDF_TARGET_ESP32P4) && !defined(POCKET_TANK_NO_PIE)
+/* The ESP32-P4's PIE (the RISC-V "xesppie" extension) does the same work as
+ * the S3's with its own mnemonics: esp.vmulas.s8.xacc is 16 int8 MACs into
+ * the wide XACC accumulator, esp.movx.r.xacc.l reads its low word (a group
+ * of 64 products of int8s cannot overflow 32 bits). Two differences from
+ * the S3: every register operand must be x8-x15 (the "cr" constraint - the
+ * assembler refuses the others), and the packed-nibble unpack has no
+ * counterpart here, so groups are unpacked by the scalar path. FreeRTOS
+ * saves and restores these registers per task (SOC_CPU_HAS_PIE), so the
+ * advisor task may use them freely. ESP-IDF already builds this target
+ * with the extension (-march=rv32imafc_zicsr_zifencei_xesppie), so no
+ * per-component flag: adding one overrode the ABI's -march and put
+ * double-precision instructions in the binary - an instruction access
+ * fault at the first model call (2026-09-19). */
+#define Q4_PIE 1
+#define Q4_PK 0
+static inline int32_t dot_i8_64(const int8_t *w, const int8_t *x) {
+    register const int8_t *wp __asm__("a0") = w;      /* x8-x15 only, and GCC has no */
+    register const int8_t *xp __asm__("a1") = x;      /* constraint letter for that set */
+    register int32_t acc __asm__("a2");
+    __asm__ volatile(
+        "esp.zero.xacc\n"
+        "esp.vld.128.ip q0, %[w], 16\n"
+        "esp.vld.128.ip q1, %[x], 16\n"
+        "esp.vld.128.ip q2, %[w], 16\n"
+        "esp.vld.128.ip q3, %[x], 16\n"
+        "esp.vmulas.s8.xacc q0, q1\n"
+        "esp.vld.128.ip q0, %[w], 16\n"
+        "esp.vld.128.ip q1, %[x], 16\n"
+        "esp.vmulas.s8.xacc q2, q3\n"
+        "esp.vld.128.ip q2, %[w], 16\n"
+        "esp.vld.128.ip q3, %[x], 16\n"
+        "esp.vmulas.s8.xacc q0, q1\n"
+        "esp.vmulas.s8.xacc q2, q3\n"
+        "esp.movx.r.xacc.l %[acc]\n"
+        : [acc] "=r"(acc), [w] "+r"(wp), [x] "+r"(xp)
+        :
+        : "memory");
+    return acc;
+}
+/* four tokens against one weight group: the group loads into q0-q3 once and
+ * stays there for all four activation rows (stride apart). Each row's sum
+ * leaves XACC into one scratch register and is stored at once - a0-a5 does
+ * not stretch to four pointers, four results and the weights together. */
+static inline void dot4_i8_64(const int8_t *w, const int8_t *x0, int stride, int32_t iv[4]) {
+    register const int8_t *wp __asm__("a0") = w;
+    register const int8_t *p0 __asm__("a1") = x0;
+    register const int8_t *p1 __asm__("a2") = x0 + stride;
+    register const int8_t *p2 __asm__("a3") = x0 + 2 * stride;
+    register const int8_t *p3 __asm__("a4") = x0 + 3 * stride;
+    register int32_t a __asm__("a5");
+    __asm__ volatile(
+        "esp.vld.128.ip q0, %[w], 16\n"
+        "esp.vld.128.ip q1, %[w], 16\n"
+        "esp.vld.128.ip q2, %[w], 16\n"
+        "esp.vld.128.ip q3, %[w], 16\n"
+        "esp.zero.xacc\n"
+        "esp.vld.128.ip q4, %[p0], 16\n"
+        "esp.vmulas.s8.xacc.ld.ip q5, %[p0], 16, q0, q4\n"
+        "esp.vmulas.s8.xacc.ld.ip q4, %[p0], 16, q1, q5\n"
+        "esp.vmulas.s8.xacc.ld.ip q5, %[p0], 16, q2, q4\n"
+        "esp.vmulas.s8.xacc q3, q5\n"
+        "esp.movx.r.xacc.l %[a]\n"
+        "sw %[a], 0(%[iv])\n"
+        "esp.zero.xacc\n"
+        "esp.vld.128.ip q4, %[p1], 16\n"
+        "esp.vmulas.s8.xacc.ld.ip q5, %[p1], 16, q0, q4\n"
+        "esp.vmulas.s8.xacc.ld.ip q4, %[p1], 16, q1, q5\n"
+        "esp.vmulas.s8.xacc.ld.ip q5, %[p1], 16, q2, q4\n"
+        "esp.vmulas.s8.xacc q3, q5\n"
+        "esp.movx.r.xacc.l %[a]\n"
+        "sw %[a], 4(%[iv])\n"
+        "esp.zero.xacc\n"
+        "esp.vld.128.ip q4, %[p2], 16\n"
+        "esp.vmulas.s8.xacc.ld.ip q5, %[p2], 16, q0, q4\n"
+        "esp.vmulas.s8.xacc.ld.ip q4, %[p2], 16, q1, q5\n"
+        "esp.vmulas.s8.xacc.ld.ip q5, %[p2], 16, q2, q4\n"
+        "esp.vmulas.s8.xacc q3, q5\n"
+        "esp.movx.r.xacc.l %[a]\n"
+        "sw %[a], 8(%[iv])\n"
+        "esp.zero.xacc\n"
+        "esp.vld.128.ip q4, %[p3], 16\n"
+        "esp.vmulas.s8.xacc.ld.ip q5, %[p3], 16, q0, q4\n"
+        "esp.vmulas.s8.xacc.ld.ip q4, %[p3], 16, q1, q5\n"
+        "esp.vmulas.s8.xacc.ld.ip q5, %[p3], 16, q2, q4\n"
+        "esp.vmulas.s8.xacc q3, q5\n"
+        "esp.movx.r.xacc.l %[a]\n"
+        "sw %[a], 12(%[iv])\n"
+        : [a] "=&r"(a), [w] "+r"(wp), [p0] "+r"(p0), [p1] "+r"(p1), [p2] "+r"(p2), [p3] "+r"(p3)
+        : [iv] "r"(iv)
+        : "memory");
+}
+/* eight tokens: the weights reload for the second four (the S3 keeps them
+ * across all eight; here the register file has no room for the pointers) */
+static inline void dot8_i8_64(const int8_t *w, const int8_t *x0, int stride, int32_t iv[8]) {
+    dot4_i8_64(w, x0, stride, iv);
+    dot4_i8_64(w, x0 + 4 * stride, stride, iv + 4);
+}
+#elif defined(CONFIG_IDF_TARGET_ESP32S3) && !defined(POCKET_TANK_NO_PIE)
 #define Q4_PIE 1
 static inline int32_t dot_i8_64(const int8_t *w, const int8_t *x) {
     int32_t acc;
@@ -665,6 +763,33 @@ float *q4_model_prefill(q4_model_t *m, const int *toks, int n) {
     quantize(&m->xq, m->x, dim, gs);
     matmul(m->logits, &m->xq, &m->wcls, dim, c->vocab_size, gs);
     return m->logits;
+}
+
+/* the group-dot kernels against a plain C reference, on the hardware that
+ * will run them: hand-written vector assembly is only as good as the chip
+ * says it is (the P4's PIE, 2026-09-19). Returns the number of mismatches. */
+int q4_kernel_selfcheck(void) {
+    static int8_t w[64] __attribute__((aligned(16)));
+    static int8_t x[8 * 64] __attribute__((aligned(16)));
+    uint32_t seed = 0x5EED1234u;
+    for (int i = 0; i < 64; i++) { seed = seed * 1664525u + 1013904223u; w[i] = (int8_t)(seed >> 24); }
+    for (int i = 0; i < 8 * 64; i++) { seed = seed * 1664525u + 1013904223u; x[i] = (int8_t)(seed >> 24); }
+    int32_t ref[8];
+    for (int t = 0; t < 8; t++) {
+        int32_t acc = 0;
+        for (int k = 0; k < 64; k++) acc += (int32_t)w[k] * x[t * 64 + k];
+        ref[t] = acc;
+    }
+    int bad = 0;
+    for (int t = 0; t < 8; t++) if (dot_i8_64(w, x + t * 64) != ref[t]) bad++;
+#if Q4_PIE
+    int32_t iv[8];
+    dot4_i8_64(w, x, 64, iv);
+    for (int t = 0; t < 4; t++) if (iv[t] != ref[t]) bad++;
+    dot8_i8_64(w, x, 64, iv);
+    for (int t = 0; t < 8; t++) if (iv[t] != ref[t]) bad++;
+#endif
+    return bad;
 }
 
 int64_t q4_model_bench(q4_model_t *m, int which, int n_tok, int64_t (*clock_us)(void)) {
