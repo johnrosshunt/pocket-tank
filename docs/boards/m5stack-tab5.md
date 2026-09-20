@@ -140,6 +140,48 @@ the speaker played.
    left is the renderer itself: 18-21 ms for a grown tank (veg 7.4, fish
    8.5, algae 2.4). The picture is one frame (~20 ms) older than it was.
 
+## To do
+
+Nothing here blocks the port; each one wants a decision, and the first
+three touch shared code or the tank's behaviour, so they are the upstream
+author's call rather than this branch's.
+
+1. **The renderer is the frame budget** (shared: `common/render.c`).
+   With the PPA's scale off the critical path (phase 9b), a frame is
+   18-21 ms of rendering: vegetation 7.4 ms, fish 8.5, glass film 2.4, on a
+   grown tank at 640 x 360. That is 34-39 fps against the panel's 66 Hz.
+   Any gain here is a gain on every board, and the sim's self-tests cover
+   the behaviour, so the work is safe to judge off-device - but the
+   trade-offs (fewer fronds, cheaper shading, dirty-rectangle redraw
+   instead of a full frame) are design decisions, not port decisions.
+
+2. **The gauge reads high while charging** (`battery_port_tab5.c`).
+   The charge current lifts the pack's voltage, and the gauge is that
+   voltage on a Li-ion curve, so the reading runs ahead on the cable and
+   settles once it comes out. Correcting it needs the pack's internal
+   resistance and the charge current - the current needs the value of the
+   INA226's shunt, which is not in the schematic here. Either measure the
+   shunt on the bench, or leave the gauge honest-but-optimistic while
+   charging (the pill already shows that it is charging).
+
+3. **Sleep is only reachable from the console** (`main.c`, this board).
+   The power key belongs to the PMS150G (one press on, two presses off), so
+   the keeper's sleep - the grace, then the power-off - has no gesture on
+   this board: `deepsleep` on the director is the only way in. Options: a
+   long press on the glass, an on-screen control, an idle timeout, or
+   leaving the Tab5 without a sleep gesture. It is a product decision, and
+   it is the same question on any board whose power key the firmware does
+   not own.
+
+4. **The clock has no time zone and no sync** (`rtc_port_rx8130.c`, and the
+   PCF85063 port before it). An unset RTC is seeded from the FIRMWARE BUILD
+   TIME, kept as if it were UTC; nothing ever corrects it. The tank only
+   measures spans, so this is invisible until something wants a local time
+   of day (a night that follows the keeper's evening, say). The Tab5 has a
+   Wi-Fi radio (the ESP32-C6, kept powered off) that could fetch the time,
+   which is a bigger decision than this port: a radio, a network, and a
+   setup flow for it.
+
 ## Build and flash
 
 `firmware/sdkconfig.defaults` targets this board (ESP32-P4, pre-v3 silicon,
