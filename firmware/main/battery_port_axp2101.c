@@ -1,7 +1,9 @@
 /* battery_port_axp2101.c — battery fraction + charge state from the AXP2101
- * PMIC's fuel gauge (I2C 0x34): STATUS1 bit3 = battery present, STATUS2
- * bits[7:5] == 1 = charging, 0xA4 = state of charge in percent. Reads are
- * cached for 5 s; any I2C error or absent battery hides the meter. */
+ * PMIC's fuel gauge (I2C 0x34): STATUS1 bit3 = battery present, bit5 = VBUS
+ * good (the cable), STATUS2 bits[7:5] == 1 = charging, bits[2:0] == 4 = the
+ * charge is done, 0xA4 = state of charge in percent. Reads are cached for
+ * ~1 s (the pill answers a plug-in within a second); any I2C error or
+ * absent battery hides the meter. */
 #include "battery_port.h"
 #include "driver/i2c_master.h"
 #include "esp_timer.h"
@@ -20,6 +22,7 @@
 static i2c_master_dev_handle_t s_dev;
 static int64_t s_last_us = -1;
 static float s_frac; static bool s_charging, s_valid;
+static uint8_t s_st1, s_st2;                     /* the last good STATUS1 / STATUS2 */
 static bool rd(uint8_t reg, uint8_t *val);
 
 bool battery_port_init(i2c_master_bus_handle_t bus) {
@@ -214,14 +217,23 @@ void battery_port_dump(void) {
 bool battery_port_read(float *frac, bool *charging) {
     if (!s_dev) return false;
     int64_t now = esp_timer_get_time();
-    if (s_last_us < 0 || now - s_last_us > 5 * 1000000) {
+    if (s_last_us < 0 || now - s_last_us > 900000) {
         s_last_us = now;
         uint8_t st1, st2, pct;
         s_valid = rd(REG_STATUS1, &st1) && rd(REG_STATUS2, &st2) && rd(REG_BAT_PERCENT, &pct)
                   && (st1 & 0x08) && pct <= 100;          /* battery present, sane SoC */
-        if (s_valid) { s_frac = pct / 100.0f; s_charging = ((st2 >> 5) & 0x07) == 0x01; }
+        if (s_valid) { s_frac = pct / 100.0f; s_charging = ((st2 >> 5) & 0x07) == 0x01; s_st1 = st1; s_st2 = st2; }
     }
     if (!s_valid) return false;
     *frac = s_frac; *charging = s_charging;
     return true;
+}
+
+/* the cable, from the last read (battery_port_read first): charge flowing,
+   else VBUS good -> done (or the gauge at 100) = full, otherwise resting */
+int battery_port_state(void) {
+    if (!s_valid) return BAT_ON_BATTERY;
+    if (s_charging) return BAT_CHARGING;
+    if (!(s_st1 & 0x20)) return BAT_ON_BATTERY;
+    return (s_st2 & 0x07) == 0x04 || s_frac >= 0.995f ? BAT_FULL : BAT_PLUGGED;
 }

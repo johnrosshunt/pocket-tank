@@ -158,9 +158,13 @@ static void show_state(const tank_t *t) {
     ESP_LOGI(TAG, "nursery bed %d (a bed >= %.2f) | parked real tank: %s", tank_nursery_bed(t), (double)VEG_NURSERY,
              nvs_has("bk") ? "YES (restore)" : "no (this IS the real tank)");
     float bf; bool chg;
-    if (battery_port_read(&bf, &chg))
-        ESP_LOGI(TAG, "battery %.0f%% %s, VBAT %d mV | brightness %d/255 (level %d%%)", bf * 100, chg ? "charging" : "on battery",
+    if (battery_port_read(&bf, &chg)) {
+        int st = battery_port_state();
+        ESP_LOGI(TAG, "battery %.0f%% %s, VBAT %d mV | brightness %d/255 (level %d%%)", bf * 100,
+                 st == BAT_CHARGING ? "charging" : st == BAT_FULL ? "on the cable, full" : st == BAT_PLUGGED ? "on the cable, not charging" : "on battery",
                  battery_port_vbat_mv(), display_port_brightness(), brightness_level());
+    }
+    device_battery_log();
 }
 
 static void help(void) {
@@ -174,7 +178,7 @@ static void help(void) {
     ESP_LOGI(TAG, "shop [off] (the sand dollar page) | dollars [n] (grant n; the balance and the chore counts) | buy plant|snail|castle|coral (at the price) | place [plant|castle|coral] [x [behind|among|front]] (the piece's spot; no x = the page; the castle has no among) | coral <0-7|rrggbb> (its colour) | coral grow <g> (its growth, 1 = the fan, 1.25 = the crown) | cluster look <0-2> | cluster grow <g> (1 = full size, 2 = every tentacle) | sell plant|castle|coral|cluster (20%% back)");
     ESP_LOGI(TAG, "reset (the keeper's confirm prompt, as BOOT + tap opens it) | reset yes|no (answer it here) - YES WIPES EVERY SAVE, a parked tank too");
     ESP_LOGI(TAG, "setup [off] (the first-run flow: welcome, names, colours; off drops the panel - the birth flow too) | name <fish|idx> <newname> (up to %d letters, saved)", FISH_NAME_MAX);
-    ESP_LOGI(TAG, "battery <pct>|real (a STAGED gauge, as if on battery at pct: the card's pill, and at 10 or less the low-battery notice + cue + the pill that stays; not saved) | snd battery (just the notice + cue)");
+    ESP_LOGI(TAG, "battery <pct> [charging|full|plugged]|real (a STAGED gauge: on battery at pct - the card's pill, and at 10 or less the low-battery notice + cue + the pill that stays - or on the cable: the bolt, the sweep while charging, the pill for a few seconds; not saved) | battery page [off] (the battery page, as a tap on the pill opens it) | battery (its numbers) | snd battery (just the notice + cue)");
     ESP_LOGI(TAG, "kbd [wheel|grid|pages] (the name page's design: the wheel, or one of the two rejected keyboards of 09-13 - not saved, a boot is the wheel)");
     ESP_LOGI(TAG, "touch [bias <px>] (finger-landing correction: reported touches move up by px; not saved)");
     ESP_LOGI(TAG, "pmic (AXP2101 dump) | pmic on|off <aldo1|aldo2..4|bldo1|bldo2|cpusldo|dcdc2..5|dldo1|dldo2> (experiments; boot trims the unused ones) | pmic trim");
@@ -367,10 +371,18 @@ static void run(tank_t *t, char *line) {
     } else if (!strcmp(c, "setup")) {
         if (argc > 1 && !strcmp(argv[1], "off")) { setup_cancel(t); ESP_LOGI(TAG, "setup panel dropped%s", progression_setup_pending() || progression_newborn() >= 0 ? " (still owed: it returns at the next boot)" : ""); }
         else { setup_begin(t); ESP_LOGI(TAG, "setup: welcome page up (tap through on the glass)"); }
-    } else if (!strcmp(c, "battery")) {              /* battery <pct>|real: a staged gauge for the pill + the low-battery rule */
-        if (argc > 1) device_fake_battery(!strcmp(argv[1], "real") ? -1 : atoi(argv[1]));
-        if (argc > 1 && strcmp(argv[1], "real")) ESP_LOGI(TAG, "gauge STAGED at %d%% on battery (10 or less: the notice, the cue, the pill stays up; `battery real` ends it)", atoi(argv[1]));
-        else ESP_LOGI(TAG, "the real gauge (battery <pct> stages one)");
+    } else if (!strcmp(c, "battery")) {              /* battery <pct> [charging|full|plugged]|real|page [off]: a staged gauge, the page */
+        if (argc > 1 && !strcmp(argv[1], "page")) {
+            bool on = !(argc > 2 && !strcmp(argv[2], "off"));
+            touch_port_show_battery(on); ESP_LOGI(TAG, "battery page %s", on ? "up (any tap closes it; 30 s by itself)" : "closed");
+        } else if (argc > 1 && strcmp(argv[1], "real")) {
+            int st = argc > 2 ? (!strcmp(argv[2], "charging") ? BAT_CHARGING : !strcmp(argv[2], "full") ? BAT_FULL : !strcmp(argv[2], "plugged") ? BAT_PLUGGED : BAT_ON_BATTERY) : BAT_ON_BATTERY;
+            device_fake_battery(atoi(argv[1]), st);
+            ESP_LOGI(TAG, "gauge STAGED at %d%% %s (`battery real` ends it)", atoi(argv[1]),
+                     st == BAT_CHARGING ? "CHARGING: the bolt, the sweep, the pill for a few seconds" : st == BAT_FULL ? "on the cable, FULL: the bolt, still"
+                     : st == BAT_PLUGGED ? "on the cable, NOT CHARGING: the gray bolt" : "on battery (10 or less: the notice, the cue, the pill stays up)");
+        } else if (argc > 1) { device_fake_battery(-1, BAT_ON_BATTERY); ESP_LOGI(TAG, "the real gauge (battery <pct> [charging|full|plugged] stages one)"); }
+        else device_battery_log();
     } else if (!strcmp(c, "kbd")) {                  /* the name page's rejected designs, to be shown: kbd wheel|grid|pages */
         if (argc > 1) setup_set_keyboard(!strcmp(argv[1], "grid") ? SETUP_KBD_GRID : !strcmp(argv[1], "pages") ? SETUP_KBD_PAGES : SETUP_KBD_WHEEL);
         ESP_LOGI(TAG, "name page: %s", setup_keyboard() == SETUP_KBD_GRID ? "GRID (the first cut: 7 x 4 keys on a panel)" :

@@ -312,6 +312,19 @@ dark by itself after a chosen number of still seconds, so a tank left on
 the desk is asleep until you pick it up. Six hours of device sleep in one
 stretch earns the tank its first full night's sleep.
 
+![The battery page, charging](docs/media/sim-battery-page.png)
+
+**The battery.** A small battery sits top right whenever a fish's card is
+open, and stays up by itself when the charge runs low. On the cable a
+lightning bolt stands beside it, and while it charges a bright band runs
+through the fill, so you never have to tell two colors apart to know it is
+charging. Plug the tank in and the battery shows itself for a few seconds
+to say it noticed. Tap it for the battery page: the charge, whether it is
+charging, about how long it will last (or how long until it is full), how
+long ago it was unplugged, the screen-on time since, and how long a full
+charge lasts. The tank learns those times from its own battery as you use
+it.
+
 **Habits and continuity.** The tank remembers where you feed it and greets
 the light coming on. A real-time clock tells it how long it was off, so a
 tank left dark for a day wakes hungry. One key does all of it: a short
@@ -395,21 +408,24 @@ between the rule stub and the LLM brain, **U** overlays, **M** milestones,
 **X** the reset prompt, **S** the first-run setup (or drops a birth's pages), **R** force an arrival
 (the birth flow opens), **Z** jump through seven
 hours of sleep, **G** grow the grass and algae now, **V** volume, **B** the
-low-battery notice, **Q** quit.
+low-battery notice, **P** plug or unplug a pretend battery (click the
+battery for its page), **Q** quit.
 
 Flags: `--fresh` starts a new random tank, `--fast N` runs tended time N×
 faster so you can watch fish grow up, `--greedy` disables sampling,
-`--narrate` prints every decision as it's made, `--snapshot <prefix>` writes
+`--narrate` prints every decision as it's made, `--battery N` starts the
+pretend battery at N%, `--snapshot <prefix>` writes
 PPM frames of the tank, card, milestones page, the shop, the placement
-page, the castle (in front, behind, its page), reset prompt, the setup
-pages, and the three pages of a birth.
+page, the castle (in front, behind, its page), the battery in each state
+and its page, reset prompt, the setup pages, and the three pages of a birth.
 
 Headless checks, all of which run in CI-style without a window:
 `--selftest` (reflex layer), `--selftest-llm [min]` (the real model),
 `--selftest-pop` (arrivals, inherited looks, saves, the setup and birth flows), `--selftest-sleep` (sleep metabolism,
 the deep-sleep wake, and ravenous begging), `--selftest-hunger` (the hunger economy),
 `--selftest-tend` (grass, algae, trust holds), `--selftest-shop` (sand
-dollars, the shop, the plant, the snail), and `--bench` (render cost).
+dollars, the shop, the plant, the snail), `--selftest-battery` (the battery
+page's numbers, and the bolt only on the cable), and `--bench` (render cost).
 
 ## Try it: firmware in QEMU
 
@@ -542,7 +558,8 @@ seven-minute prompt check before an overnight run is always worth it.
 - ✅ Model: schema v4 (boredom, no shadow), 14.3M student, 4-bit export, evaluated
 - ✅ Simulator: the full tank with progression, self-tests, snapshots
 - ✅ Firmware: running on the real board at 25 to 30 fps and 3.7 s per
-  decision, with touch, auto-rotation, a battery gauge and log, and one
+  decision, with touch, auto-rotation, a battery gauge and log (tap the
+  battery for its page; on the cable it wears a bolt), and one
   key for sleep and wake (a 20 min nap window, then the board powers itself
   off to tens of microamps; from there a held press wakes it)
 - ✅ The living tank: growth, arrivals with courtship, trust, the hunger

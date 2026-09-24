@@ -22,6 +22,7 @@
 #include "advisor_llm_esp.h"
 #include "touch_port.h"
 #include "battery_port.h"
+#include "battery.h"
 #include "imu_port.h"
 #include "director.h"
 #include "brightness.h"
@@ -97,6 +98,8 @@ static void assert_plan(void) {
 
 static void enter_poweroff(void);
 static void deep_sleep_now(int wake_after_s);
+static bat_t s_bh;                          /* the battery page's history: NVS "bat"/"hist" (its own namespace - a tank reset leaves it) */
+static void bat_hist_save(void);            /* at sleep too: the screen-on time so far */
 static bool s_btn_armed; static int64_t s_btn_low_since;   /* sleep_button_poll state */
 static bool s_btn_used;   /* this press opened the reset prompt: no drowse, no power-off from it */
 
@@ -173,6 +176,7 @@ static void enter_sleep_for(int wake_after_s) {
              wake_after_s > 0 ? "deep sleep with the timer" : s_pmic ? "PMIC power-off (the PWR key boots it)" : "deep sleep (BOOT wakes)", pct0, mv0);
     touch_port_confirm_answer(-1);              /* an open reset prompt is a NO */
     progression_save(&tank);
+    bat_hist_save();                            /* the screen-on time so far */
     snapshot_fish();
     audio_port_sleep();        /* amp low, codec down, rail off - before the rails cycle */
     batlog_add(pct0, mv0, display_port_brightness(), true, "sleep");
@@ -208,6 +212,7 @@ static void enter_sleep_for(int wake_after_s) {
         float napped = (esp_timer_get_time() - t0) / 1e6f;
         tank_tick_sleep(&tank, napped);         /* the nap counts, tiny as it is */
         progression_woke(&tank);                /* a fry that was on its way: born now (2026-09-24) */
+        battery_woke(&s_bh);                    /* what the gauge lost asleep is no screen-on drain */
         display_port_wake();
         imu_port_wake();
         batlog_add(battery_pct(), battery_port_vbat_mv(), 0, true, "nap");
@@ -250,6 +255,7 @@ static void enter_poweroff(void) {
     ESP_LOGI(TAG, "power-off now: saving tank, PMIC soft cut (the PWR key boots)");
     touch_port_confirm_answer(-1);
     progression_save(&tank);
+    bat_hist_save();
     audio_port_sleep();
     batlog_add(battery_pct(), battery_port_vbat_mv(), display_port_brightness(), true, "off");   /* to NVS too: the shelf time is measurable at the next boot */
     imu_port_sleep();
@@ -326,27 +332,71 @@ static void on_tank_event(int ev, int fish, void *ud) {
     default: break;
     }
 }
-/* the gauge, once a second, for the card's pill and the low-battery rule
- * (docs/AUDIO.md 4a): at 10% and not charging the notice + cue fire once;
- * the pill then stays on screen until charging is seen or the gauge has
- * read above 10% for 30 s */
+/* the gauge, once a second, for the pill and the low-battery rule
+ * (docs/AUDIO.md 4a): at 10% and off the cable the notice + cue fire once;
+ * the pill then stays on screen until the cable is seen or the gauge has
+ * read above 10% for 30 s. Since 2026-09-24 it also feeds the battery
+ * page's history (battery.h) and, when the cable goes in, shows the pill -
+ * bolt and sweep - for BAT_POPUP_S: plugging in answers on the glass. */
 #define LOW_BATTERY_FRAC 0.10f
 static float s_bat_frac; static bool s_bat_chg, s_bat_ok, s_bat_low;
-static int s_bat_fake = -1;                 /* director `battery N`: a staged gauge, for the camera (-1 = the real one) */
-void device_fake_battery(int pct) { s_bat_fake = pct < 0 ? -1 : pct > 100 ? 100 : pct; if (pct < 0) s_bat_low = false; }
+static int s_bat_state = BAT_ON_BATTERY, s_bat_mv;   /* BAT_*; VBAT, read with the gauge (the page shows it) */
+static int64_t s_bat_popup_us;              /* the cable went in: the pill shows until then */
+static int s_bat_fake = -1, s_bat_fake_state;   /* director `battery N [charging|full|plugged]`: a staged gauge, for the camera (-1 = the real one) */
+void device_fake_battery(int pct, int state) {
+    s_bat_fake = pct < 0 ? -1 : pct > 100 ? 100 : pct; s_bat_fake_state = state;
+    if (pct < 0) s_bat_low = false;
+}
+static void bat_hist_load(void) {
+    nvs_handle_t h; bat_hist_t b; size_t len = sizeof b; bool ok = false;
+    if (nvs_open("bat", NVS_READONLY, &h) == ESP_OK) { ok = nvs_get_blob(h, "hist", &b, &len) == ESP_OK && len == sizeof b; nvs_close(h); }
+    battery_init(&s_bh, ok ? &b : NULL);
+    if (ok) ESP_LOGI(TAG, "battery history: %s since %lld, screen on %u min, drain %s%.1f %%/h, charge %s%.1f %%/h",
+                     b.on_power ? "on the cable" : "on battery", (long long)b.since_unix, (unsigned)(b.awake_s / 60),
+                     b.drain_x10 ? "" : "(default) ", b.drain_x10 ? b.drain_x10 / 10.0 : BAT_DRAIN_DEFAULT,
+                     b.charge_x10 ? "" : "(default) ", b.charge_x10 ? b.charge_x10 / 10.0 : BAT_CHARGE_DEFAULT);
+}
+static void bat_hist_save(void) {
+    nvs_handle_t h; if (nvs_open("bat", NVS_READWRITE, &h) != ESP_OK) return;
+    if (nvs_set_blob(h, "hist", &s_bh.h, sizeof s_bh.h) == ESP_OK) nvs_commit(h);
+    nvs_close(h);
+}
+void device_battery_log(void) {             /* director `state` / `battery` */
+    bat_info_t bi; char a[16], b[16], c[16];
+    battery_info(&s_bh, clock_port_now_unix(), s_bat_ok ? (int)(s_bat_frac * 100 + 0.5f) : -1, s_bat_mv, s_bat_state, &bi);
+    battery_fmt_dur(a, sizeof a, bi.since_min); battery_fmt_dur(b, sizeof b, bi.awake_min); battery_fmt_dur(c, sizeof c, bi.left_min);
+    ESP_LOGI(TAG, "battery page: %d%% %s%s | since the cable moved %s (at %d%%), screen on %s | %s %s | a full charge ~%d min (drain %s%.1f %%/h, charge %s%.1f %%/h)",
+             bi.pct, bi.state == BAT_CHARGING ? "CHARGING" : bi.state == BAT_FULL ? "FULL" : bi.state == BAT_PLUGGED ? "PLUGGED (not charging)" : "ON BATTERY",
+             s_bat_fake >= 0 ? " (STAGED)" : "", a, s_bh.h.since_pct, b, bi.state == BAT_CHARGING ? "full in" : "left", c, bi.life_min,
+             s_bh.h.drain_x10 ? "" : "default ", s_bh.h.drain_x10 ? s_bh.h.drain_x10 / 10.0 : BAT_DRAIN_DEFAULT,
+             s_bh.h.charge_x10 ? "" : "default ", s_bh.h.charge_x10 ? s_bh.h.charge_x10 / 10.0 : BAT_CHARGE_DEFAULT);
+}
 static void battery_frame(int64_t now) {
-    static int64_t bat_us, above_since;
+    static int64_t bat_us, above_since; static bool was_power;
     if (now - bat_us < 1000000) return;
+    float dt = bat_us ? (now - bat_us) / 1e6f : 0;
+    if (dt > 2) dt = 2;                         /* a nap in the sleep grace is no screen time */
     bat_us = now;
     s_bat_ok = battery_port_read(&s_bat_frac, &s_bat_chg);
-    if (s_bat_fake >= 0) { s_bat_ok = true; s_bat_frac = s_bat_fake / 100.0f; s_bat_chg = false; }   /* staged: on battery at that level, whatever the cable says */
+    s_bat_state = s_bat_ok ? battery_port_state() : BAT_ON_BATTERY;
+    if (s_bat_fake >= 0) { s_bat_ok = true; s_bat_frac = s_bat_fake / 100.0f; s_bat_state = s_bat_fake_state; }   /* staged: that level, that cable, whatever the real one says */
+    s_bat_chg = s_bat_state == BAT_CHARGING;
     if (!s_bat_ok) return;
+    s_bat_mv = battery_port_vbat_mv();
+    int pct = (int)(s_bat_frac * 100 + 0.5f), edge;
+    if (s_bat_fake < 0) edge = battery_tick(&s_bh, clock_port_now_unix(), dt, pct, s_bat_state);   /* a staged gauge teaches the history nothing */
+    else edge = BAT_ON_POWER(s_bat_state) == was_power ? 0 : BAT_ON_POWER(s_bat_state) ? 1 : -1;
+    was_power = BAT_ON_POWER(s_bat_state);
+    if (edge > 0) { s_bat_popup_us = now + BAT_POPUP_S * 1000000LL;
+                    ESP_LOGI(TAG, "battery: cable in at %d%% (%s) - the pill shows %d s", pct, s_bat_state == BAT_CHARGING ? "charging" : s_bat_state == BAT_FULL ? "full" : "not charging", BAT_POPUP_S); }
+    else if (edge < 0) ESP_LOGI(TAG, "battery: unplugged at %d%%", pct);
+    if (battery_take_save(&s_bh)) bat_hist_save();
     if (!s_bat_low) {
-        if (!s_bat_chg && s_bat_frac <= LOW_BATTERY_FRAC) {
+        if (!BAT_ON_POWER(s_bat_state) && s_bat_frac <= LOW_BATTERY_FRAC) {
             s_bat_low = true; above_since = 0; notice_low_battery();
             ESP_LOGW(TAG, "battery low: %d%% - notice + pill", (int)(s_bat_frac * 100 + 0.5f));
         }
-    } else if (s_bat_chg) { s_bat_low = false; ESP_LOGI(TAG, "battery: charging, pill down"); }
+    } else if (BAT_ON_POWER(s_bat_state)) { s_bat_low = false; ESP_LOGI(TAG, "battery: on the cable, the low pill down"); }
     else if (s_bat_frac > LOW_BATTERY_FRAC) {
         if (!above_since) above_since = now;
         else if (now - above_since > 30LL * 1000000) { s_bat_low = false; ESP_LOGI(TAG, "battery back above %d%%: pill down", (int)(LOW_BATTERY_FRAC * 100)); }
@@ -409,7 +459,7 @@ static void tank_task(void *arg) {
         { static int64_t last_bat; if (now - last_bat > 5LL * 60 * 1000000) {   /* battery log: awake sample every 5 min */
             batlog_add(battery_pct(), battery_port_vbat_mv(), display_port_brightness(), false, last_bat ? "" : "boot"); last_bat = now; } }
         tank.hold_light = setup_active() || touch_port_confirm_up();   /* no lights-out mid-name */
-        tank.ui_cover = tank.hold_light || touch_port_milestones() || touch_port_settings() || touch_port_shop();   /* a fry's spawning waits */
+        tank.ui_cover = tank.hold_light || touch_port_milestones() || touch_port_settings() || touch_port_shop() || touch_port_battery();   /* a fry's spawning waits */
         tank_tick(&tank, dt, llm_ok ? advisor_llm_esp : advisor_rules);
         progression_tick(&tank, dt);
         battery_frame(now);
@@ -452,11 +502,19 @@ static void tank_task(void *arg) {
                 render_shop(&tank, fb[cur], TANK_W);
                 sel = -1;
             } else render_sd_toast(&tank, fb[cur], TANK_W);   /* the live tank: "+N" as dollars are earned */
-            if (sel >= 0) {                      /* tapped fish: stats card + battery */
-                render_stats_card(&tank, sel, fb[cur], TANK_W);
-                if (s_bat_ok) render_battery(fb[cur], TANK_W, s_bat_frac, s_bat_chg);
-            } else if (s_bat_low && s_bat_ok && !touch_port_milestones() && !touch_port_settings() && !touch_port_shop())
-                render_battery(fb[cur], TANK_W, s_bat_frac, s_bat_chg);   /* low: the pill stays up */
+            if (sel >= 0) render_stats_card(&tank, sel, fb[cur], TANK_W);   /* tapped fish: stats card (+ the pill) */
+            {   /* the battery pill: with a card, while low, and a few seconds after the cable goes in;
+                   the battery page (a tap on the pill) over the live tank in its place */
+                bool pages = touch_port_milestones() || touch_port_settings() || touch_port_shop() || setup_active() || touch_port_confirm_up();
+                bool bpage = touch_port_battery() && s_bat_ok && !pages;
+                bool pill = s_bat_ok && !pages && !bpage && (sel >= 0 || s_bat_low || now < s_bat_popup_us);
+                if (bpage) {
+                    bat_info_t bi;
+                    battery_info(&s_bh, clock_port_now_unix(), (int)(s_bat_frac * 100 + 0.5f), s_bat_mv, s_bat_state, &bi);
+                    render_battery_info(fb[cur], TANK_W, &bi, tank.clock);
+                } else if (pill) render_battery(fb[cur], TANK_W, s_bat_frac, s_bat_state, tank.clock);
+                touch_port_set_pill(pill);
+            }
             if (!touch_port_milestones() && !touch_port_settings() && !touch_port_shop()) {   /* an announcement over the live tank */
                 const notice_t *nt = notice_current();
                 if (nt) render_notice(&tank, fb[cur], TANK_W, nt->kind, nt->fish, nt->bit, 1.0f - nt->age / NOTICE_UP_S);
@@ -534,6 +592,7 @@ void app_main(void) {
     { int carried = batlog_init();       /* the battery log survives every reset but a power-on */
       if (carried) ESP_LOGI(TAG, "batlog: %d samples carried through the reset (director `batlog` reads them)", carried); }
     brightness_init();
+    bat_hist_load();
     assert_plan();
     for (int i = 0; i < PLAN_FB_COUNT; i++) {
         fb[i] = heap_caps_aligned_alloc(64, PLAN_FB_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);

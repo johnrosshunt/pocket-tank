@@ -8,6 +8,9 @@
  * snapshot AND the current position - fish move during a tap. While the stats
  * card is up, a tap anywhere on empty glass dismisses it (hunting the same
  * fish again to close it was the old, cumbersome way) and does nothing else.
+ * While the battery pill shows (main.c says so each frame), a tap on it -
+ * RENDER_BAT_HIT, the pill plus a fingertip's slop - opens the battery page;
+ * any release closes that page (2026-09-24).
  * Coordinates are mapped from the portrait panel to the landscape tank. */
 #include "touch_port.h"
 #include "board_pins.h"
@@ -40,6 +43,9 @@ static bool s_back;                               /* the settings page's CLOSE j
 static int  s_shop_act;                           /* an UNLOCK / MOVE / SELL tapped: the raw tap code, for main (one-shot) */
 static bool s_held_page;                          /* this press opened a piece's page by holding on it (2026-09-24) */
 static int  s_set_what, s_set_val;                /* a segment tapped: SET_TAP_* + value, for main */
+static bool s_pill;                               /* main.c drew the battery pill this frame: a tap on it is its page's */
+static bool s_bat; static int64_t s_bat_us;       /* the battery page up, and since when (it closes itself) */
+#define BATTERY_PAGE_US (30LL * 1000000)
 #define CONFIRM_TIMEOUT_US (20LL * 1000000)
 static bool s_inverted;                           /* screen 180-flipped: mirror into tank space */
 /* Fingers land a little BELOW where the eye aims - the pad rolls onto the
@@ -109,7 +115,7 @@ void touch_port_poll(tank_t *t) {
             else ESP_LOGI(TAG, "setup done: %s + %s", t->fish[0].name, t->fish[1].name);
         }
     }
-    bool modal = s_ms || s_set || s_shop || s_cf || su;               /* a page or a prompt owns the glass */
+    bool modal = s_ms || s_set || s_shop || s_cf || su || s_bat;      /* a page or a prompt owns the glass */
     if (touched) { s_lx = tx; s_ly = ty; if (!modal) tank_touch_drag(t, tx, ty); }  /* stroke = wipe/slash */
     /* tap-and-hold on a decoration (2026-09-24, Strato: "right now it's like 5
        taps to get back to the edit"): a still finger 700 ms on an owned
@@ -139,6 +145,7 @@ void touch_port_poll(tank_t *t) {
                      setup_hit_name(setup_active() ? setup_hit(s_px, s_py) : 0));
             s_sel = -1; goto released;
         }
+        if (s_bat) { s_bat = false; ESP_LOGI(TAG, "battery page closed"); goto released; }   /* any release closes it */
         if (now - s_press_us < 350000 && dx * dx + dy * dy < 24 * 24) {
             if (notice_current()) { notice_dismiss(); ESP_LOGI(TAG, "tap closed the announcement"); goto released; }
             if (s_set || s_back) { s_back = false; goto released; }   /* the settings page had the glass (render_settings_touch above) */
@@ -157,6 +164,11 @@ void touch_port_poll(tank_t *t) {
                 if (r != MS_TAP_CLOSE && r != MS_TAP_SETTINGS && r != MS_TAP_SHOP) goto released;   /* only a button leaves the page */
                 s_ms = false; s_sel = -1; s_set = r == MS_TAP_SETTINGS; s_shop = r == MS_TAP_SHOP;
                 progression_ack_milestones(t); render_milestones_leave();   /* everything shown is now "seen" */
+                goto released;
+            }
+            if (s_pill && RENDER_BAT_HIT(s_px, s_py)) {      /* the battery pill, while it shows: its page (2026-09-24) */
+                s_bat = true; s_bat_us = now; s_sel = -1;
+                ESP_LOGI(TAG, "battery pill tapped at %.0f,%.0f: battery page up", s_px, s_py);
                 goto released;
             }
             if (s_sel >= 0 && s_sel != RENDER_CARD_SNAIL && RENDER_CARD_HIT(s_px, s_py)) {   /* a tap ON the card (or the slop
@@ -191,17 +203,18 @@ released:
     s_down = touched;
     if (s_sel >= t->n_fish && s_sel != RENDER_CARD_SNAIL) s_sel = -1;   /* fresh tank / save load */
     if (s_sel >= 0 && now - s_sel_us > 10 * 1000000) s_sel = -1; /* auto-dismiss */
+    if (s_bat && now - s_bat_us > BATTERY_PAGE_US) s_bat = false; /* the battery page too, after a while */
 }
 
 int touch_port_selected(void) { return s_sel; }
 bool touch_port_milestones(void) { return s_ms; }
 void touch_port_show_milestones(bool on) { if (s_ms && !on) render_milestones_leave(); s_ms = on; }
-void touch_port_dismiss(void) { s_sel = -1; if (s_ms) render_milestones_leave(); if (s_shop) render_shop_leave(); s_ms = false; s_set = false; s_shop = false; }
+void touch_port_dismiss(void) { s_sel = -1; if (s_ms) render_milestones_leave(); if (s_shop) render_shop_leave(); s_ms = false; s_set = false; s_shop = false; s_bat = false; }
 
 /* ---- reset confirm prompt ---- */
 void touch_port_confirm_open(void) {
     s_cf = true; s_cf_us = esp_timer_get_time(); s_cf_ans = 0;
-    s_sel = -1; s_ms = false; s_set = false; s_shop = false; render_shop_leave();   /* it replaces the card / the pages */
+    s_sel = -1; s_ms = false; s_set = false; s_shop = false; s_bat = false; render_shop_leave();   /* it replaces the card / the pages */
     ESP_LOGI(TAG, "reset prompt up (YES / NO on the glass; NO by itself in %d s)", (int)(CONFIRM_TIMEOUT_US / 1000000));
 }
 bool touch_port_confirm_answer(int ans) {
@@ -218,8 +231,11 @@ float touch_port_confirm_frac(void) {
 int  touch_port_confirm_take(void)  { int a = s_cf_ans; s_cf_ans = 0; return a; }
 bool touch_port_pressed_since(int64_t us) { return s_down && s_press_us > us; }
 bool touch_port_settings(void) { return s_set; }
-void touch_port_show_settings(bool on) { s_set = on; if (on) { s_ms = false; s_sel = -1; } }
+void touch_port_show_settings(bool on) { s_set = on; if (on) { s_ms = false; s_sel = -1; s_bat = false; } }
 int  touch_port_take_setting(int *value) { int w = s_set_what; *value = s_set_val; s_set_what = 0; return w; }
 bool touch_port_shop(void) { return s_shop; }
-void touch_port_show_shop(bool on) { if (s_shop && !on) render_shop_leave(); s_shop = on; if (on) { s_ms = false; s_set = false; s_sel = -1; } }
+void touch_port_show_shop(bool on) { if (s_shop && !on) render_shop_leave(); s_shop = on; if (on) { s_ms = false; s_set = false; s_sel = -1; s_bat = false; } }
 int  touch_port_take_shop(void) { int r = s_shop_act; s_shop_act = 0; return r; }
+void touch_port_set_pill(bool up) { s_pill = up; }
+bool touch_port_battery(void) { return s_bat; }
+void touch_port_show_battery(bool on) { s_bat = on; if (on) { s_bat_us = esp_timer_get_time(); s_sel = -1; } }

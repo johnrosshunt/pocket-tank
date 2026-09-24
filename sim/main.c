@@ -13,6 +13,9 @@
  *                          R force an arrival (the birth flow opens: announce /
  *                          name / family; S drops it), A auto-light, Q quit,
  *                          V volume (off / quiet / normal), B the low-battery notice,
+ *                          P the cable in / out (a pretend battery: the pill
+ *                          shows for a few seconds; with a card up it is
+ *                          always there - click it for the battery page),
  *                          4 ($) the shop page, D +50 sand dollars;
  *                          click fish = stats; tap the water surface = feed;
  *                          drag down from the top = feed; hold >= 3 s = finger
@@ -22,6 +25,7 @@
  *                          settings' MANUAL mode, the default)
  *   ./fishsim --fresh      ignore the save (new tank: random pair)
  *   ./fishsim --fast N     tended time runs N x faster (stages, drift)
+ *   ./fishsim --battery N  the pretend battery starts at N% (default 72)
  *   ./fishsim --greedy     greedy decoding instead of sampling
  *   ./fishsim --selftest   headless reflex-layer check, no window
  *   ./fishsim --selftest-llm [min]   headless LLM path (real-time if min > 0)
@@ -30,6 +34,7 @@
  *   ./fishsim --selftest-tend        headless canopy/algae/hold-attract check
  *   ./fishsim --selftest-hunger      headless hunger economy (untended tank never ravenous)
  *   ./fishsim --selftest-shop        headless sand dollars: awards, the shop, the plant, the snail, the save
+ *   ./fishsim --selftest-battery     headless battery page: stretches, sleep, learned rates, estimates, the pill
  *   ./fishsim --bench                headless render-cost profile (veg, card)
  *   (key Z: jump through 7 h of device-style sleep; key G: grow the canopy +
  *    algae now to try the chores - press again to cycle)
@@ -1154,6 +1159,22 @@ static bool ms_back = false;         /* the settings page's CLOSE just brought t
 static int  sim_bright = 100;        /* the settings page's brightness (device setting; cosmetic here) */
 static uint32_t confirm_ms;          /* when it opened; it gives up after CONFIRM_MS */
 #define CONFIRM_MS 20000
+/* the battery (2026-09-24): the sim has no gauge, so a pretend cell drains
+ * and charges at the device's default rates and P moves the cable. The pill
+ * shows with a card, when low, and for BAT_POPUP_S after P plugs in; a
+ * click on it opens the battery page (any click closes it), as on the glass. */
+static bat_t sim_bat;
+static float sim_bat_pct = 72.0f;    /* --battery <pct> sets it */
+static int   sim_bat_state = BAT_ON_BATTERY;
+static bool  battery_view = false;   /* the battery page (a click on the pill) */
+static uint32_t battery_view_ms, bat_popup_ms;
+#define BATTERY_VIEW_MS 30000
+static int sim_bat_gauge(void) { return (int)(sim_bat_pct + 0.5f); }
+static bool sim_pill_up(void) {
+    return !milestones_view && !settings_view && !shop_view && !battery_view && !confirm_view && !setup_active() &&
+           ((ui_visible && selected_fish >= 0) || (!BAT_ON_POWER(sim_bat_state) && sim_bat_gauge() <= 10) ||
+            (bat_popup_ms && SDL_GetTicks() - bat_popup_ms < BAT_POPUP_S * 1000));
+}
 
 static uint32_t tick_cb(void) { return SDL_GetTicks(); }
 
@@ -1211,7 +1232,7 @@ static void sound_init(void) {
 }
 /* per frame: the notice queue, the bubble loop, the card cue, night */
 static void sound_frame(uint32_t now, float dt) {
-    notice_tick(&tank, dt, setup_active() || confirm_view || milestones_view || settings_view || shop_view);
+    notice_tick(&tank, dt, setup_active() || confirm_view || milestones_view || settings_view || shop_view || battery_view);
     int cue = notice_take_cue();
     if (cue >= 0) snd(cue, AUDIO_PITCH_ONE);
     bool loop = setup_active() && !setup_is_birth() && setup_page() == SETUP_PG_BUBBLES;
@@ -1242,8 +1263,18 @@ static void frame_cb(lv_timer_t *timer) {
     last_ms = now;
     if (dt > 0.1f) dt = 0.1f;                     /* window drag pause */
     tank.hold_light = setup_active() || confirm_view;   /* no lights-out mid-name */
-    tank.ui_cover = tank.hold_light || milestones_view || settings_view || shop_view;   /* a fry's spawning waits */
+    tank.ui_cover = tank.hold_light || milestones_view || settings_view || shop_view || battery_view;   /* a fry's spawning waits */
     tank_tick(&tank, dt, llm_active ? advisor_llm : advisor_rules);
+    {   /* the pretend cell, and the battery page's history fed once a second, as the device feeds it */
+        if (sim_bat_state == BAT_ON_BATTERY) sim_bat_pct = fmaxf(0, sim_bat_pct - BAT_DRAIN_DEFAULT / 3600 * dt);
+        else if (sim_bat_state == BAT_CHARGING && (sim_bat_pct += BAT_CHARGE_DEFAULT / 3600 * dt) >= 100) { sim_bat_pct = 100; sim_bat_state = BAT_FULL; }
+        static float acc; acc += dt;
+        if (acc >= 1) {
+            if (battery_tick(&sim_bat, clock_port_now_unix(), acc, sim_bat_gauge(), sim_bat_state) > 0) bat_popup_ms = now;
+            acc = 0;
+        }
+        if (battery_view && now - battery_view_ms > BATTERY_VIEW_MS) battery_view = false;
+    }
     progression_tick(&tank, dt);
     if (!confirm_view) {                          /* an arrival owed its welcome: the birth flow (setup.c) */
         int nb = setup_poll_birth(&tank);
@@ -1262,6 +1293,11 @@ static void frame_cb(lv_timer_t *timer) {
             if (selected_fish >= 0)
                 render_stats_card(&tank, selected_fish, canvas_buf, TANK_W);
         }
+        if (battery_view) {                              /* the battery page (a click on the pill) */
+            bat_info_t bi;
+            battery_info(&sim_bat, clock_port_now_unix(), sim_bat_gauge(), 3500 + (int)(sim_bat_pct * 7), sim_bat_state, &bi);
+            render_battery_info(canvas_buf, TANK_W, &bi, tank.clock);
+        } else if (sim_pill_up()) render_battery(canvas_buf, TANK_W, sim_bat_gauge() / 100.0f, sim_bat_state, tank.clock);
         const notice_t *nt = notice_current();
         if (nt) render_notice(&tank, canvas_buf, TANK_W, nt->kind, nt->fish, nt->bit, 1.0f - nt->age / NOTICE_UP_S);
     }
@@ -1483,8 +1519,35 @@ static int snapshot(const char *prefix, int seconds) {
     snprintf(path, sizeof path, "%s_notice_tank.ppm", prefix); write_ppm(path, fb);
     render_tank(&tank, fb, TANK_W); render_notice(&tank, fb, TANK_W, 2, 2, 0, 0.6f);
     snprintf(path, sizeof path, "%s_notice_stage.ppm", prefix); write_ppm(path, fb);
-    render_tank(&tank, fb, TANK_W); render_notice(&tank, fb, TANK_W, 3, -1, 0, 0.6f); render_battery(fb, TANK_W, 0.08f, false);
+    render_tank(&tank, fb, TANK_W); render_notice(&tank, fb, TANK_W, 3, -1, 0, 0.6f); render_battery(fb, TANK_W, 0.08f, BAT_ON_BATTERY, 0);
     snprintf(path, sizeof path, "%s_notice_battery.ppm", prefix); write_ppm(path, fb);
+    /* the battery (2026-09-24): the pill with a card in each state (clock
+       0.65 = the charging sweep mid-fill), then the page on battery, charging,
+       full - its numbers from a staged history */
+    { static const struct { const char *name; float frac; int state; } PILL[] = {
+          { "on_battery", 0.63f, BAT_ON_BATTERY }, { "charging", 0.63f, BAT_CHARGING }, { "full", 1.0f, BAT_FULL },
+          { "plugged", 0.82f, BAT_PLUGGED }, { "low", 0.08f, BAT_ON_BATTERY }, { "low_charging", 0.08f, BAT_CHARGING } };
+      for (size_t i = 0; i < sizeof PILL / sizeof PILL[0]; i++) {
+          render_tank(&tank, fb, TANK_W); render_stats_card(&tank, 0, fb, TANK_W);
+          render_battery(fb, TANK_W, PILL[i].frac, PILL[i].state, 0.65f);
+          snprintf(path, sizeof path, "%s_battery_pill_%s.ppm", prefix, PILL[i].name); write_ppm(path, fb);
+      }
+      const int64_t now = 1790000000;
+      bat_t b; battery_init(&b, NULL);
+      b.h.since_pct = 100; b.h.on_power = 0; b.h.since_unix = now - (3 * 3600 + 20 * 60);   /* unplugged 3 h 20 m ago ... */
+      b.h.awake_s = 70 * 60; b.h.drop_pct = 52; b.h.drain_x10 = 430;                        /* ... 1 h 10 m of it awake */
+      bat_info_t bi;
+      battery_info(&b, now, 48, 3790, BAT_ON_BATTERY, &bi);
+      render_tank(&tank, fb, TANK_W); render_battery_info(fb, TANK_W, &bi, 0.65f);
+      snprintf(path, sizeof path, "%s_battery_page.ppm", prefix); write_ppm(path, fb);
+      b.h.on_power = 1; b.h.since_unix = now - 25 * 60; b.h.awake_s = 25 * 60; b.h.drop_pct = 0;
+      battery_info(&b, now, 71, 4040, BAT_CHARGING, &bi);
+      render_tank(&tank, fb, TANK_W); render_battery_info(fb, TANK_W, &bi, 0.65f);
+      snprintf(path, sizeof path, "%s_battery_page_charging.ppm", prefix); write_ppm(path, fb);
+      b.h.since_unix = now - (2 * 3600 + 40 * 60);
+      battery_info(&b, now, 100, 4180, BAT_FULL, &bi);
+      render_tank(&tank, fb, TANK_W); render_battery_info(fb, TANK_W, &bi, 0.65f);
+      snprintf(path, sizeof path, "%s_battery_page_full.ppm", prefix); write_ppm(path, fb); }
     render_tank(&tank, fb, TANK_W); render_confirm_reset(fb, TANK_W, 0.7f);
     snprintf(path, sizeof path, "%s_confirm.ppm", prefix); write_ppm(path, fb);
     /* the first-run setup, page by page (never BEGIN: that would save this
@@ -1651,6 +1714,95 @@ static int snapshot(const char *prefix, int seconds) {
     return 0;
 }
 
+
+/* --selftest-battery (2026-09-24): the battery page's arithmetic - a fresh
+ * history, a stretch on battery (screen-on time, the gauge's drop, the
+ * estimate), a gauge that bounces, a night asleep that is not screen time,
+ * the saves, the cable in (the drain learned) and a charge (the charge rate
+ * learned), an edge that happened while the tank was off, a foreign blob,
+ * the durations' words, and the pill: its hit box, the bolt on the cable only. */
+static int selftest_battery(void) {
+    int fails = 0;
+#define BCHECK(cond, ...) do { if (!(cond)) { printf("FAIL: "); printf(__VA_ARGS__); printf("\n"); fails++; } } while (0)
+    bat_t b; battery_init(&b, NULL); bat_info_t bi;
+    int64_t t = 1790000000;
+    BCHECK(battery_tick(&b, t, 0, 90, BAT_ON_BATTERY) == 0, "a first boot on battery is no cable edge");
+    BCHECK(battery_take_save(&b), "the first stretch is saved at once");
+    float pct = 90;                                          /* 40 awake min at 45 %/h */
+    for (int s = 0; s < 40 * 60; s++) { t++; pct -= 45.0f / 3600; battery_tick(&b, t, 1.0f, (int)(pct + 0.5f), BAT_ON_BATTERY); }
+    battery_info(&b, t, (int)(pct + 0.5f), 3800, BAT_ON_BATTERY, &bi);
+    BCHECK(bi.awake_min == 40 && bi.since_min == 40, "screen on %d / since %d min, want 40 / 40", bi.awake_min, bi.since_min);
+    BCHECK(bi.measured && abs(bi.left_min - 80) <= 10, "60%% at ~45 %%/h: %d min left (measured %d), want ~80", bi.left_min, bi.measured);
+    BCHECK(abs(bi.life_min - 133) <= 15, "a full charge %d min, want ~133", bi.life_min);
+    printf("selftest-battery: 40 min on battery 90 -> %d%%: screen on %d min, ~%d min left, a full charge ~%d min\n", (int)(pct + 0.5f), bi.awake_min, bi.left_min, bi.life_min);
+    int d0 = b.h.drop_pct;                                   /* the gauge bounces 60/59/60/59: 1%% */
+    static const int BOUNCE[] = { 60, 59, 60, 59, 60, 59 };
+    for (int i = 0; i < 6; i++) battery_tick(&b, ++t, 1.0f, BOUNCE[i], BAT_ON_BATTERY);
+    BCHECK(b.h.drop_pct - d0 == 1, "a bouncing gauge counted %d%%, want 1", b.h.drop_pct - d0);
+    uint32_t aw = b.h.awake_s; int d1 = b.h.drop_pct;        /* 8 h asleep, 2%% lost: not screen time, not screen drain */
+    battery_woke(&b); t += 8 * 3600;
+    battery_tick(&b, t, 0, 57, BAT_ON_BATTERY);
+    battery_info(&b, t, 57, 3780, BAT_ON_BATTERY, &bi);
+    BCHECK(b.h.awake_s == aw && b.h.drop_pct == d1, "the night counted: awake +%u s, drop +%d", b.h.awake_s - aw, b.h.drop_pct - d1);
+    BCHECK(bi.since_min > 8 * 60 && bi.awake_min < 60, "after the night: since %d, screen on %d", bi.since_min, bi.awake_min);
+    battery_take_save(&b);                                   /* the saves: every 10 awake minutes (20 more min at 45 %/h) */
+    int saves = 0; pct = 57;
+    for (int s = 0; s < 1200; s++) { pct -= 45.0f / 3600; battery_tick(&b, ++t, 1.0f, (int)(pct + 0.5f), BAT_ON_BATTERY); saves += battery_take_save(&b); }
+    BCHECK(saves == 2, "20 awake min asked for %d saves, want 2", saves);
+    int plug = (int)(pct + 0.5f);
+    BCHECK(battery_tick(&b, ++t, 1.0f, plug, BAT_CHARGING) == 1, "the cable in is +1");
+    BCHECK(b.h.drain_x10 >= 400 && b.h.drain_x10 <= 500, "the drain learned %.1f %%/h, want ~45", b.h.drain_x10 / 10.0);
+    BCHECK(battery_take_save(&b), "a cable edge is saved");
+    float cp = plug;                                         /* charging at 80 %/h */
+    for (int s = 0; s < 15 * 60; s++) { t++; cp += 80.0f / 3600; battery_tick(&b, t, 1.0f, (int)(cp + 0.5f), BAT_CHARGING); }
+    battery_info(&b, t, (int)(cp + 0.5f), 4050, BAT_CHARGING, &bi);
+    int want = (int)((100 - cp) / 80 * 60);
+    BCHECK(bi.since_min == 15 && abs(bi.left_min - want) <= 6, "charging at %d%%: since %d, full in %d, want ~%d", (int)(cp + 0.5f), bi.since_min, bi.left_min, want);
+    BCHECK(bi.awake_min < 0, "no screen-on row on the cable");
+    printf("selftest-battery: plugged in at %d%%: the drain learned %.1f %%/h; 15 min later %d%%, full in ~%d min\n", plug, b.h.drain_x10 / 10.0, (int)(cp + 0.5f), bi.left_min);
+    while (cp < 100) { t++; cp += 80.0f / 3600; battery_tick(&b, t, 1.0f, cp >= 99.5f ? 100 : (int)(cp + 0.5f), BAT_CHARGING); }
+    BCHECK(battery_tick(&b, ++t, 1.0f, 100, BAT_FULL) == 0, "full is no cable edge");
+    BCHECK(b.h.charge_x10 >= 720 && b.h.charge_x10 <= 880, "the charge learned %.1f %%/h, want ~80", b.h.charge_x10 / 10.0);
+    battery_info(&b, t, 100, 4180, BAT_FULL, &bi);
+    BCHECK(bi.left_min < 0 && bi.life_min > 0, "full: no countdown, a life");
+    BCHECK(battery_tick(&b, ++t, 1.0f, 100, BAT_ON_BATTERY) == -1, "unplugged is -1");
+    bat_hist_t saved = b.h; bat_t b2;                        /* saved on battery, the cable went in while the tank was off */
+    battery_init(&b2, &saved);
+    BCHECK(battery_tick(&b2, t + 3600, 0, 64, BAT_CHARGING) == 1, "a plug-in while off is +1 at the boot");
+    BCHECK(b2.h.drain_x10 == saved.drain_x10, "a stretch with no screen time taught nothing");
+    bat_hist_t junk; memset(&junk, 0x5a, sizeof junk); bat_t b3;
+    battery_init(&b3, &junk);
+    BCHECK(b3.h.since_pct == -1 && b3.h.drain_x10 == 0, "a blob that is not ours starts fresh");
+    char d[16];
+    static const struct { int min; const char *want; } DUR[] = { { 0, "0M" }, { 45, "45M" }, { 120, "2H" }, { 135, "2H 15M" }, { 1500, "1D 1H" }, { 2880, "2D" } };
+    for (size_t i = 0; i < sizeof DUR / sizeof DUR[0]; i++) { battery_fmt_dur(d, sizeof d, DUR[i].min); BCHECK(!strcmp(d, DUR[i].want), "%d min reads %s, want %s", DUR[i].min, d, DUR[i].want); }
+    BCHECK(RENDER_BAT_HIT(RENDER_BAT_X + 10, RENDER_BAT_Y + 5) && RENDER_BAT_HIT(RENDER_BAT_X - 30, RENDER_BAT_Y + 45), "the pill and a fingertip below-left of it");
+    BCHECK(!RENDER_BAT_HIT(TANK_W / 2, TANK_H / 2) && !RENDER_BAT_HIT(RENDER_CARD_X + 60, 20) && !RENDER_BAT_HIT(RENDER_BAT_X, 90), "not the water, the card or below the slop");
+    static uint16_t fb[TANK_W * TANK_H];                     /* the bolt: left of the pill on the cable, never on battery */
+    int bolt_px[4];
+    for (int st = 0; st < 4; st++) {
+        for (int i = 0; i < TANK_W * TANK_H; i++) fb[i] = 0x4208;
+        render_battery(fb, TANK_W, 0.5f, st, 0.65f);
+        bolt_px[st] = 0;
+        for (int y = 0; y < 40; y++) for (int x = RENDER_BAT_X - 30; x < RENDER_BAT_X - 1; x++) bolt_px[st] += fb[y * TANK_W + x] != 0x4208;
+    }
+    BCHECK(bolt_px[BAT_ON_BATTERY] == 0 && bolt_px[BAT_CHARGING] > 60 && bolt_px[BAT_FULL] > 60 && bolt_px[BAT_PLUGGED] > 60,
+           "bolt pixels on battery %d, charging %d, full %d, resting %d", bolt_px[0], bolt_px[1], bolt_px[2], bolt_px[3]);
+    uint16_t a[RENDER_BAT_W], z[RENDER_BAT_W]; int moved = 0;   /* the sweep moves while charging, only then */
+    for (int st = 0; st < 3; st += 2) {
+        for (int i = 0; i < TANK_W * TANK_H; i++) fb[i] = 0x4208;
+        render_battery(fb, TANK_W, 0.9f, st ? BAT_FULL : BAT_CHARGING, 0.3f); memcpy(a, fb + (RENDER_BAT_Y + 7) * TANK_W + RENDER_BAT_X, sizeof a);
+        for (int i = 0; i < TANK_W * TANK_H; i++) fb[i] = 0x4208;
+        render_battery(fb, TANK_W, 0.9f, st ? BAT_FULL : BAT_CHARGING, 0.9f); memcpy(z, fb + (RENDER_BAT_Y + 7) * TANK_W + RENDER_BAT_X, sizeof z);
+        if (memcmp(a, z, sizeof a)) moved |= st ? 2 : 1;
+    }
+    BCHECK(moved == 1, "the sweep: charging %s, full %s", moved & 1 ? "moves" : "STILL", moved & 2 ? "MOVES" : "still");
+    printf("selftest-battery: charged in ~%.0f min (learned %.1f %%/h); the bolt %d px on the cable, none on battery; the sweep only while charging\n",
+           (100 - plug) / (b.h.charge_x10 / 10.0) * 60, b.h.charge_x10 / 10.0, bolt_px[BAT_CHARGING]);
+#undef BCHECK
+    if (!fails) printf("selftest-battery: ok\n");
+    return fails ? 1 : 0;
+}
 
 /* --selftest-shop (2026-09-15): the sand dollars. A fresh tank has none; a
  * feeding pays only once somebody eats from it; stages, a birth and full
@@ -2330,6 +2482,7 @@ int main(int argc, char **argv) {
         if (strcmp(argv[a], "--bench") == 0) return bench();
         if (strcmp(argv[a], "--selftest-hunger") == 0) return selftest_hunger();
         if (strcmp(argv[a], "--selftest-shop") == 0) return selftest_shop();
+        if (strcmp(argv[a], "--selftest-battery") == 0) return selftest_battery();
         if (strcmp(argv[a], "--selftest-pop") == 0) return selftest_pop();
         if (strcmp(argv[a], "--selftest-sleep") == 0) return selftest_sleep();
         if (strcmp(argv[a], "--selftest-tend") == 0) return selftest_tend();
@@ -2338,9 +2491,11 @@ int main(int argc, char **argv) {
     }
 
     tank_init(&tank, (uint32_t)SDL_GetTicks() + 7);
+    battery_init(&sim_bat, NULL);
     bool fresh = false;
     for (int a = 1; a < argc; a++) {
         if (strcmp(argv[a], "--fresh") == 0) fresh = true;
+        if (strcmp(argv[a], "--battery") == 0 && a + 1 < argc) sim_bat_pct = fminf(100, fmaxf(0, (float)atof(argv[++a])));
         if (strcmp(argv[a], "--fast") == 0 && a + 1 < argc) progression_time_scale = (float)atof(argv[++a]);
     }
     if (fresh) {
@@ -2383,6 +2538,7 @@ int main(int argc, char **argv) {
     bool fdown = false, ndown = false, ldown = false;
     bool udown = false, mdown = false, mkdown = false, rdown = false, zdown = false, gdown = false, xdown = false, sdown = false, vdown = false, bdown = false, fourdown = false, ddown = false;
     bool cdown = false;             /* C: the castle prototype */
+    bool pdown = false;             /* P: the pretend battery's cable */
     bool kdown = false;             /* K: the coral (colours cycle) */
     bool jdown = false;             /* J: the coral's growth, a step */
     bool idown = false, odown = false;   /* I: the reef cluster (looks cycle); O: its growth */
@@ -2426,7 +2582,7 @@ int main(int argc, char **argv) {
             else if (r == SET_TAP_LIGHT) printf("lights out: %s\n", v ? "AUTO (the idle rule)" : "MANUAL (double-tap the glass, the default)");
             else if (r == SET_TAP_IDLE) printf("lights out after %d s still\n", v);
         }
-        bool modal = confirm_view || setup_up || settings_view || shop_view;
+        bool modal = confirm_view || setup_up || settings_view || shop_view || battery_view;
         if (mpress && !modal) tank_touch_drag(&tank, (float)mx, (float)my);   /* stroke -> wipe/slash */
         if (mpress && !modal && !held_page && now_ms - press_ms > 700 && abs(mx - press_x) < 24 && abs(my - press_y) < 24) {   /* tap-and-hold on a piece: its page (2026-09-24) */
             int it = tank_decor_hit(&tank, (float)press_x, (float)press_y);
@@ -2447,6 +2603,7 @@ int main(int argc, char **argv) {
             }
             else if (setup_up) { /* the setup owns the glass: setup_touch took it */ }
             else if (notice_current()) notice_dismiss();      /* an announcement up: the tap closes it */
+            else if (battery_view) battery_view = false;      /* the battery page: any click closes it */
             else if (settings_view || ms_back) ms_back = false;   /* the page owns the glass: render_settings_touch took it
                                                                     (and its CLOSE already brought the milestones page back) */
             else if (shop_view) {                       /* the shop: a row's modal, UNLOCK, HOW TO EARN, CLOSE */
@@ -2489,7 +2646,11 @@ int main(int argc, char **argv) {
                 }
                 /* a click ON the open card (its MORE button, or any of it): the
                    milestones page, as the device's touch port does (2026-09-16) */
-                if (selected_fish >= 0 && selected_fish != RENDER_CARD_SNAIL && RENDER_CARD_HIT(press_x, press_y))
+                if (sim_pill_up() && RENDER_BAT_HIT(press_x, press_y)) {   /* the battery pill, while it shows: its page (2026-09-24) */
+                    battery_view = true; battery_view_ms = now_ms; selected_fish = -1;
+                    printf("battery page: %d%%, %s\n", sim_bat_gauge(), sim_bat_state == BAT_CHARGING ? "charging" : sim_bat_state == BAT_FULL ? "full" : "on battery");
+                }
+                else if (selected_fish >= 0 && selected_fish != RENDER_CARD_SNAIL && RENDER_CARD_HIT(press_x, press_y))
                     milestones_view = true;
                 else if (best >= 0) selected_fish = (best == selected_fish) ? -1 : best;
                 else if (tank_snail_hit(&tank, (float)press_x, (float)press_y))   /* the snail: its card (2026-09-16) */
@@ -2515,6 +2676,12 @@ int main(int argc, char **argv) {
         vdown = k[SDL_SCANCODE_V];
         if (k[SDL_SCANCODE_B] && !bdown) { notice_low_battery(); printf("low battery notice queued\n"); }
         bdown = k[SDL_SCANCODE_B];
+        if (k[SDL_SCANCODE_P] && !pdown) {                    /* the cable, in or out (the pretend cell) */
+            sim_bat_state = BAT_ON_POWER(sim_bat_state) ? BAT_ON_BATTERY : sim_bat_gauge() >= 100 ? BAT_FULL : BAT_CHARGING;
+            printf("battery: %s at %d%% (the pill shows; click it for the battery page)\n",
+                   sim_bat_state == BAT_ON_BATTERY ? "unplugged" : "cable in", sim_bat_gauge());
+        }
+        pdown = k[SDL_SCANCODE_P];
         if (k[SDL_SCANCODE_4] && !fourdown && !confirm_view && !setup_up) {   /* $: the shop page */
             shop_view = !shop_view; if (!shop_view) render_shop_leave(); milestones_view = false; settings_view = false; selected_fish = -1;
             printf("shop: %s (%d sand dollars)\n", shop_view ? "up" : "closed", tank.sd_balance);

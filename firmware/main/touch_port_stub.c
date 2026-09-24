@@ -22,6 +22,10 @@ static bool s_shop;
 bool touch_port_shop(void) { return s_shop; }
 void touch_port_show_shop(bool on) { s_shop = on; }
 int  touch_port_take_shop(void) { return 0; }
-void touch_port_dismiss(void) { s_ms = false; }
+static bool s_bat;
+void touch_port_set_pill(bool up) { (void)up; }
+bool touch_port_battery(void) { return s_bat; }
+void touch_port_show_battery(bool on) { s_bat = on; }
+void touch_port_dismiss(void) { s_ms = false; s_bat = false; }
 void touch_port_set_bias(int px) { (void)px; }
 int  touch_port_bias(void) { return 0; }

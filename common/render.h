@@ -6,6 +6,7 @@
 
 #include <stddef.h>
 #include "tank.h"
+#include "battery.h"
 
 /* fb is TANK_W x TANK_H, RGB565, stride in PIXELS (usually TANK_W). */
 void render_tank(const tank_t *t, uint16_t *fb, int stride);
@@ -73,9 +74,26 @@ void render_stats_card(const tank_t *t, int fish_idx, uint16_t *fb, int stride);
                                (y) >= RENDER_CARD_Y && (y) < RENDER_CARD_Y + RENDER_CARD_H + RENDER_CARD_HIT_BELOW)
 void render_set_card_cache(uint16_t *buf);
 
-/* Device battery pill (top-right), drawn with the stats card on hardware:
- * frac 0..1, charging tints the fill teal. */
-void render_battery(uint16_t *fb, int stride, float frac, bool charging);
+/* Device battery pill (top-right), drawn with the stats card on hardware,
+ * while the battery is low, and for BAT_POPUP_S after the cable goes in:
+ * frac 0..1, state = BAT_* (battery.h), clock (s) runs the sweep. Redrawn
+ * 2026-09-24 for a color-blind keeper: on the cable a lightning bolt stands
+ * left of the pill (gray while the charger rests), and while charge flows a
+ * bright band sweeps the fill - shape and motion, hue only as a repeat.
+ * A tap in RENDER_BAT_HIT (the pill plus a fingertip's slop, most of it
+ * below and to the left) opens the battery page - while the pill shows. */
+#define RENDER_BAT_W 32
+#define RENDER_BAT_H 15
+#define RENDER_BAT_X (TANK_W - RENDER_BAT_W - 28)     /* clear of the curved bezel; the bolt sits left of it */
+#define RENDER_BAT_Y 8
+#define RENDER_BAT_HIT(x, y) ((x) >= RENDER_BAT_X - 44 && (y) < RENDER_BAT_Y + RENDER_BAT_H + 40)
+void render_battery(uint16_t *fb, int stride, float frac, int state, float clock);
+/* the battery page (2026-09-24): a panel over the live tank - the battery
+ * large with its percent, the state in words, time left / time to full,
+ * then since the cable moved, screen-on time on this charge, what a full
+ * charge lasts (battery_info fills bi) and the voltage, dim. Any tap closes
+ * it (the platforms); it closes itself after a while. */
+void render_battery_info(uint16_t *fb, int stride, const bat_info_t *bi, float clock);
 /* an announcement over the live tank (notice.h: a milestone the moment it
  * is earned, a stage reached, low battery), in the milestones page's modal
  * style; frac_left (1 -> 0) is its remaining time, drawn as a thin bar */

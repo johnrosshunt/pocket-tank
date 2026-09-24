@@ -1669,25 +1669,91 @@ void render_tank(const tank_t *t, uint16_t *fb, int stride) {
 #undef DYN_RECT
 }
 
-/* device battery pill, top-right: outline + nub, fill fraction colored by
- * level (charging = teal). Same visual language as the stats card - no text. */
-void render_battery(uint16_t *fb, int stride, float frac, bool charging) {
-    ctx_t c = ctx_full(fb, stride, 1.0f);
+/* ---- the battery (2026-09-24 redraw): Strato is color blind and could not
+ * tell the charging pill (a teal fill) from the full one (green). Now the
+ * cable shows as a SHAPE - a lightning bolt left of the pill - and flowing
+ * charge as MOTION - a bright band sweeping the fill; the hue only repeats
+ * it. On battery the fill wears the level colors; on the cable it is the
+ * calm green whatever the level (a red sliver on the charger is no alarm).
+ * The info page draws the same battery large. ---- */
+
+/* the bolt, a polygon in a 10 x 16 box: the flat top, the stroke down to
+   the left, the jog across, the tail to the point */
+static const float BOLT_X[7] = { 6.0f, 0.5f, 4.0f, 2.5f, 10.0f, 6.5f, 10.0f };
+static const float BOLT_Y[7] = { 0.0f, 9.5f, 9.5f, 16.0f, 5.5f, 5.5f, 0.0f };
+/* filled with 4 sub-rows of exact span coverage per pixel row, so it stays a
+   bolt at the pill's 15 px (no stair-stepped mush) and the page's 38 */
+static void bolt_fill(ctx_t *c, float ox, float oy, float s, uint32_t rgb, int alpha) {
+    src_t col = src_color(rgb, 1.0f);
+    int x0 = (int)floorf(ox), w = (int)ceilf(10.0f * s) + 2;
+    float cov[64];
+    if (w > 64) w = 64;
+    for (int y = (int)floorf(oy); y <= (int)ceilf(oy + 16.0f * s); y++) {
+        memset(cov, 0, sizeof cov);
+        for (int sub = 0; sub < 4; sub++) {
+            float yy = (y + (sub + 0.5f) * 0.25f - oy) / s, xs[8]; int n = 0;
+            for (int i = 0, j = 6; i < 7; j = i++)
+                if ((BOLT_Y[i] > yy) != (BOLT_Y[j] > yy))
+                    xs[n++] = ox + s * (BOLT_X[j] + (yy - BOLT_Y[j]) * (BOLT_X[i] - BOLT_X[j]) / (BOLT_Y[i] - BOLT_Y[j]));
+            for (int i = 1; i < n; i++) for (int k = i; k > 0 && xs[k] < xs[k - 1]; k--) { float t = xs[k]; xs[k] = xs[k - 1]; xs[k - 1] = t; }
+            for (int k = 0; k + 1 < n; k += 2)                   /* each inside interval, spread over the pixels it crosses */
+                for (int px_ = (int)floorf(xs[k]); px_ <= (int)floorf(xs[k + 1]); px_++) {
+                    float a = fmaxf(xs[k], (float)px_), b = fminf(xs[k + 1], px_ + 1.0f);
+                    if (b > a && px_ - x0 >= 0 && px_ - x0 < w) cov[px_ - x0] += (b - a) * 0.25f;
+                }
+        }
+        for (int i = 0; i < w; i++)
+            if (cov[i] > 0.02f) px_blend_s(c, x0 + i, y, &col, (int)(fminf(cov[i], 1.0f) * alpha));
+    }
+}
+/* the bolt h px tall at (x, y), with a dark rim so it reads over bright water */
+static void draw_bolt(ctx_t *c, float x, float y, float h, uint32_t rgb) {
+    float s = h / 16.0f;
+    for (int dy = -1; dy <= 1; dy++)
+        for (int dx = -1; dx <= 1; dx++)
+            if (dx || dy) bolt_fill(c, x + dx, y + dy, s, 0x04141a, 200);
+    bolt_fill(c, x, y, s, rgb, 255);
+}
+static float bolt_w(float h) { return 10.0f * h / 16.0f; }
+static int bolt_room(int H) { return (int)bolt_w(H * 1.25f) + H / 4 + 2; }   /* the bolt beside a battery H tall, and its gap */
+
+/* a battery at (X, Y), body W x H, `line` px of outline, the nub on the right;
+   on the cable the bolt stands left of it (the caller leaves the room) */
+static void draw_battery(ctx_t *c, int X, int Y, int W, int H, int line, float frac, int state, float clock) {
     if (frac < 0) frac = 0;
     if (frac > 1) frac = 1;
-    const int W = 26, H = 11, X = TANK_W - W - 28, Y = 9;   /* clear of the curved bezel */
-    uint32_t col = charging ? 0x38dcc7 : frac < 0.2f ? 0xf25b65
-                 : frac < 0.45f ? 0xffbd59 : 0x78d67d;
-    for (int y = Y; y < Y + H; y++)
-        for (int x = X; x < X + W; x++)
-            px_blend(&c, x, y, 0x04141a, 215);
-    for (int x = X; x < X + W; x++) { px(&c, x, Y, rgb565(0x9fb4b8, 1)); px(&c, x, Y + H - 1, rgb565(0x9fb4b8, 1)); }
-    for (int y = Y; y < Y + H; y++) { px(&c, X, y, rgb565(0x9fb4b8, 1)); px(&c, X + W - 1, y, rgb565(0x9fb4b8, 1)); }
-    for (int y = Y + 3; y < Y + H - 3; y++)                    /* nub */
-        for (int x = X + W; x < X + W + 3; x++) px(&c, x, y, rgb565(0x9fb4b8, 1));
-    int fw = (int)((W - 4) * frac + 0.5f);
-    for (int y = Y + 2; y < Y + H - 2; y++)
-        for (int x = X + 2; x < X + 2 + fw; x++) px(&c, x, y, rgb565(col, 1));
+    bool pw = BAT_ON_POWER(state);
+    uint32_t col = pw ? 0x78d67d : frac < 0.2f ? 0xf25b65 : frac < 0.45f ? 0xffbd59 : 0x78d67d;
+    uint32_t edge = pw ? 0xdfeef0 : 0x9fb4b8;                  /* on the cable the rim brightens too */
+    src_t bg = src_color(0x04141a, 1.0f), e = src_color(edge, 1.0f), f = src_color(col, 1.0f);
+    for (int y = Y; y < Y + H; y++) span(c, X, X + W - 1, y, &bg, 215);
+    for (int k = 0; k < line; k++) {
+        span(c, X, X + W - 1, Y + k, &e, 255); span(c, X, X + W - 1, Y + H - 1 - k, &e, 255);
+        for (int y = Y; y < Y + H; y++) { px(c, X + k, y, e.v); px(c, X + W - 1 - k, y, e.v); }
+    }
+    int nh = H * 2 / 5, nw = line + 2;                         /* the nub */
+    for (int y = Y + (H - nh) / 2; y < Y + (H + nh) / 2; y++) span(c, X + W, X + W + nw - 1, y, &e, 255);
+    int in = line + 1, iw = W - 2 * in, fw = (int)(iw * frac + 0.5f);
+    if (pw && fw < 2) fw = 2;
+    for (int y = Y + in; y < Y + H - in; y++) if (fw > 0) span(c, X + in, X + in + fw - 1, y, &f, 255);
+    if (state == BAT_CHARGING && fw > 0) {                     /* the sweep: charge flowing in, left to right */
+        float ph = fmodf(clock, 1.8f) / 1.3f;
+        if (ph <= 1.0f) {
+            float bw = fmaxf(4.0f, iw / 5.0f), cx = X + in - bw + ph * (fw + 2 * bw);
+            src_t wh = src_color(0xffffff, 1.0f);
+            for (int x = X + in; x < X + in + fw; x++) {
+                float d = fabsf(x + 0.5f - cx) / bw;
+                if (d < 1) for (int y = Y + in; y < Y + H - in; y++) px_blend_s(c, x, y, &wh, (int)(170 * (1 - d)));
+            }
+        }
+    }
+    if (pw) draw_bolt(c, X - bolt_room(H), Y - H / 8.0f, H * 1.25f, state == BAT_PLUGGED ? 0x9fb4b8 : 0xffffff);   /* a touch taller than the battery */
+}
+
+/* the pill, top right (render.h) */
+void render_battery(uint16_t *fb, int stride, float frac, int state, float clock) {
+    ctx_t c = ctx_full(fb, stride, 1.0f);
+    draw_battery(&c, RENDER_BAT_X, RENDER_BAT_Y, RENDER_BAT_W, RENDER_BAT_H, 1, frac, state, clock);
 }
 
 /* ---- stats overlay (selection ring + visual card) ---- */
@@ -1957,8 +2023,9 @@ static const uint8_t FONT5X7[][7] = {
     { 0x01, 0x02, 0x02, 0x04, 0x08, 0x08, 0x10 }, /* / */
     { 0x00, 0x04, 0x04, 0x1f, 0x04, 0x04, 0x00 }, /* + */
     { 0x19, 0x1a, 0x02, 0x04, 0x08, 0x0b, 0x13 }, /* % */
+    { 0x00, 0x00, 0x08, 0x15, 0x02, 0x00, 0x00 }, /* ~ (the battery page's "about") */
 };
-static const char FONT_CHARS[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789?!.,-:'/+%";
+static const char FONT_CHARS[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789?!.,-:'/+%~";
 static const uint8_t *glyph(char ch) {
     if (ch >= 'a' && ch <= 'z') ch -= 'a' - 'A';
     const char *p = ch ? strchr(FONT_CHARS, ch) : NULL;
@@ -2082,6 +2149,64 @@ int render_confirm_hit(float x, float y) {
     if (x >= RENDER_CONFIRM_NO_X - m  && x < RENDER_CONFIRM_NO_X  + RENDER_CONFIRM_BTN_W + m) return -1;
     if (x >= RENDER_CONFIRM_YES_X - m && x < RENDER_CONFIRM_YES_X + RENDER_CONFIRM_BTN_W + m) return 1;
     return 0;
+}
+
+/* ---- the battery page (2026-09-24): a tap on the pill. The snail card's
+ * dress, centered over the live tank: the battery large with its percent,
+ * the state in words (the one thing no color has to carry), the estimate,
+ * then two or three rows - since the cable moved, the screen-on time on
+ * this charge, what a full charge lasts - and the cell voltage, dim, for
+ * the curious. Rows the clock cannot answer are left out. ---- */
+void render_battery_info(uint16_t *fb, int stride, const bat_info_t *bi, float clock) {
+    ctx_t c = ctx_full(fb, stride, 1.0f);
+    bool pw = BAT_ON_POWER(bi->state);
+    char lab[3][16], val[3][32], d[16]; int nr = 0;
+    if (bi->since_min >= 0) {
+        snprintf(lab[nr], sizeof lab[nr], pw ? "PLUGGED IN" : "UNPLUGGED");
+        if (bi->since_min < 1) snprintf(val[nr], sizeof val[nr], "JUST NOW");
+        else { battery_fmt_dur(d, sizeof d, bi->since_min); snprintf(val[nr], sizeof val[nr], "%s AGO", d); }
+        nr++;
+    }
+    if (!pw && bi->awake_min >= 0) {
+        snprintf(lab[nr], sizeof lab[nr], "SCREEN ON");
+        battery_fmt_dur(val[nr], sizeof val[nr], bi->awake_min); nr++;
+    }
+    if (bi->life_min > 0) {
+        snprintf(lab[nr], sizeof lab[nr], "BATTERY LIFE");
+        battery_fmt_dur(d, sizeof d, bi->life_min); snprintf(val[nr], sizeof val[nr], "~%s", d); nr++;
+    }
+    const int W = 336, H = (bi->mv > 0 ? 170 : 154) + nr * 26, X = (TANK_W - W) / 2, Y = (TANK_H - H) / 2;
+    src_t bg = src_color(0x04141a, 1.0f);
+    for (int y = Y; y < Y + H; y++) span(&c, X, X + W - 1, y, &bg, 240);
+    rect_edge(&c, X, Y, W, H, 0x9fd8e2); rect_edge(&c, X + 1, Y + 1, W - 2, H - 2, 0x1c2f36);
+    /* the battery, its percent beside it */
+    char pct[16]; snprintf(pct, sizeof pct, "%d%%", bi->pct < 0 ? 0 : bi->pct > 100 ? 100 : bi->pct);
+    const int BW = 84, BH = 36, TS = 5;
+    int bolt = pw ? bolt_room(BH) : 0;
+    int gw = bolt + BW + 6 + 20 + text_w(pct, TS), gx = X + (W - gw) / 2, gy = Y + 22;
+    draw_battery(&c, gx + bolt, gy, BW, BH, 2, bi->pct / 100.0f, bi->state, clock);
+    draw_text(&c, gx + bolt + BW + 6 + 20, gy + (BH - 7 * TS) / 2, TS, 0xffffff, pct);
+    /* the state, then what it means in time */
+    const char *st = bi->state == BAT_CHARGING ? "CHARGING" : bi->state == BAT_FULL ? "FULLY CHARGED"
+                   : bi->state == BAT_PLUGGED ? "PLUGGED IN" : "ON BATTERY";
+    draw_text(&c, X + (W - text_w(st, 3)) / 2, Y + 78, 3, 0xffffff, st);
+    char est[48];
+    if (bi->state == BAT_CHARGING) { battery_fmt_dur(d, sizeof d, bi->left_min); snprintf(est, sizeof est, "FULL IN ABOUT %s", d); }
+    else if (bi->state == BAT_FULL) snprintf(est, sizeof est, "READY TO UNPLUG");
+    else if (bi->state == BAT_PLUGGED) snprintf(est, sizeof est, "NOT CHARGING RIGHT NOW");
+    else if (bi->left_min < 5) snprintf(est, sizeof est, "ALMOST EMPTY");
+    else { battery_fmt_dur(d, sizeof d, bi->left_min); snprintf(est, sizeof est, "ABOUT %s LEFT", d); }
+    draw_text(&c, X + (W - text_w(est, 2)) / 2, Y + 110, 2, 0x9fd8e2, est);
+    rect_fill(&c, X + 20, Y + 138, W - 40, 1, 0x1c2f36);
+    for (int i = 0; i < nr; i++) {
+        int ry = Y + 152 + i * 26;
+        draw_text(&c, X + 20, ry, 2, 0x9fd8e2, lab[i]);
+        draw_text(&c, X + W - 20 - text_w(val[i], 2), ry, 2, 0xffffff, val[i]);
+    }
+    if (bi->mv > 0) {
+        char v[32]; snprintf(v, sizeof v, "%d.%02d V", bi->mv / 1000, bi->mv % 1000 / 10);
+        draw_text_8px(&c, X + (W - (int)strlen(v) * 6 + 1) / 2, Y + H - 20, 0x5f7f86, v);
+    }
 }
 
 /* ---- milestones page (2026-09-13 redesign: an achievement wall) ----

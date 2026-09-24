@@ -64,6 +64,9 @@ reset the chip before anyone read the log.
   archive docs/batlog/2026-09-16_1437.txt); and everything through
   2026-09-24 - the frond ceilings, the coral, the fry SPAWNING (a staged
   fry is born on its own, no light-on; flashed 2026-09-24 11:04, archive
-  docs/batlog/2026-09-24_1104.txt).
+  docs/batlog/2026-09-24_1104.txt), the reef cluster + SELL, and the
+  battery page with the color-blind-safe pill (bolt + sweep; flashed
+  2026-09-24 13:15, archive docs/batlog/2026-09-24_1315.txt). The battery
+  page's history lives in NVS namespace "bat" (fresh at that flash).
 - Model partition: v4m (model_q4_v4m.bin, flashed 2026-09-15 ~06:00).
-- Save: lori, mira, bolt (elders), sol (adult), kelp (fry) - the tank at the 2026-09-24 flash (was navi + pebble after Strato's reset of 2026-09-15 night).
+- Save: mem + lira (juveniles, 0.7 h old, 20 sand dollars) at the 2026-09-24 13:15 flash - the morning's lori / mira / bolt / sol / kelp were already gone in that preflight archive (wiped between 11:16 and 13:15).
