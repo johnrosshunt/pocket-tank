@@ -741,8 +741,40 @@ static int selftest_tend(void) {
     for (int i = 0; i < ALGAE_CELLS; i++) film += tank.algae[i] > 0;
     printf("selftest-tend: after 7 h sleep, canopy %.2f -> %.2f, %d algae cells\n",
            g0, tank.veg_growth[1], film);
-    if (tank.veg_growth[1] <= g0 + 0.3f) { printf("FAIL: canopy barely grew in sleep\n"); return 1; }
+    if (tank.veg_growth[1] <= g0 + 0.2f) { printf("FAIL: canopy barely grew in sleep\n"); return 1; }
+    if (tank.veg_growth[1] > 0.80f) { printf("FAIL: one night should not put the bed near the surface (2026-09-23: it did, every time)\n"); return 1; }
     if (film < 10) { printf("FAIL: algae did not film the glass\n"); return 1; }
+    if (film > (int)(ALGAE_CELLS * 0.30f) - 20) {           /* tank.c ALGAE_COVER_CAP */ printf("FAIL: one night filmed the glass to the cap\n"); return 1; }
+    /* the ceilings (2026-09-23): however long the tank sleeps, every frond
+     * stops at its own height in VEG_CAP_LO..VEG_CAP_HI and the skyline
+     * stays ragged - a grown bed is not a wall at the surface */
+    {
+        tank_t grown; tank_init(&grown, 777); progression_boot(&grown);
+        tank_tick_sleep(&grown, 4 * 3600);
+        float nap = grown.veg_growth[1];
+        tank_tick_sleep(&grown, 96 * 3600);
+        float lo = 1, hi = 0;
+        for (int i = 0; i < VEG_FRONDS_MAX; i++) {
+            float h = grown.veg_h[1][i], cap = tank_veg_cap(1, i);
+            if (h > cap + 1e-4f || cap < VEG_CAP_LO - 1e-4f || cap > VEG_CAP_HI + 1e-4f) { printf("FAIL: frond %d at %.3f past its ceiling %.3f\n", i, h, cap); return 1; }
+            if (h < cap - 1e-3f) { printf("FAIL: frond %d never reached its ceiling (%.3f < %.3f) in 100 h\n", i, h, cap); return 1; }
+            if (h < lo) lo = h; if (h > hi) hi = h;
+        }
+        printf("selftest-tend: a 4 h nap: bed 1 %.2f -> %.2f; 100 h asleep: fronds %.2f..%.2f (mean %.2f), never the surface\n", g0, nap, lo, hi, grown.veg_growth[1]);
+        if (nap > 0.60f) { printf("FAIL: a 4 h nap overgrew the bed\n"); return 1; }
+        if (hi - lo < 0.10f) { printf("FAIL: the grown skyline is flat\n"); return 1; }
+        if (grown.veg_growth[1] >= VEG_CAP_HI) { printf("FAIL: the grown bed reads as full\n"); return 1; }
+        /* a staged frond above its ceiling is left alone, never pulled down */
+        grown.veg_h[1][0] = 1.0f; tank_veg_sync(&grown);
+        tank_tick_sleep(&grown, 3600);
+        if (grown.veg_h[1][0] < 1.0f - 1e-4f) { printf("FAIL: growth pulled a staged frond down\n"); return 1; }
+        /* and the untended grown tank still reads as smothered: two beds at
+           their ceilings (the trim-it-back signal, relative to the ceilings now) */
+        fish_t *gf = &grown.fish[0]; gf->stress = 0;
+        for (int i = 0; i < 60 * 60; i++) tank_tick(&grown, 1.0f / 60.0f, advisor_rules);
+        printf("selftest-tend: every bed at its ceiling for an hour: stress %.1f\n", gf->stress);
+        if (gf->stress < 1.5f) { printf("FAIL: a tank grown to its ceilings should smother\n"); return 1; }
+    }
     /* the device drowses in 30 s slices (firmware DROWSE_TICK_US): the same
      * night delivered that way must film the glass just as much. Before
      * 2026-09-04 every slice truncated to 0 film steps and the glass stayed
@@ -890,9 +922,10 @@ static int selftest_tend(void) {
         tank_tick(&tank, 1.0f / 60.0f, advisor_rules);
     }
     float s_two = cf->stress;
-    /* ... but ONE bed at the ceiling with the others tall (under 85%) is
-     * just a lot of good cover: stress must fall, faster than in open water */
-    tank_veg_set(&tank, 0, 1.0f); tank_veg_set(&tank, 1, 0.8f); tank_veg_set(&tank, 2, 0.8f);
+    /* ... but ONE bed at the ceiling with the others tall (under 85% of their
+     * own ceilings, ~0.83: 0.62 is three quarters of the way) is just a lot
+     * of good cover: stress must fall, faster than in open water */
+    tank_veg_set(&tank, 0, 1.0f); tank_veg_set(&tank, 1, 0.62f); tank_veg_set(&tank, 2, 0.62f);
     cf->stress = 5; cf->x = TANK_W * 0.5f; cf->y = 60;   /* open water, not hidden */
     for (int i = 0; i < 60 * 8; i++) {
         tank_tick(&tank, 1.0f / 60.0f, advisor_rules);
@@ -1283,6 +1316,18 @@ static int snapshot(const char *prefix, int seconds) {
     render_set_dirty_mask(dirty_buf);
     render_tank(&tank, fb, TANK_W);
     snprintf(path, sizeof path, "%s_tank.ppm", prefix); write_ppm(path, fb);
+    /* _grown: the same tank left asleep for days - every frond at its own
+       ceiling (tank_veg_cap), the film where a long absence leaves it */
+    {
+        tank_t grown = tank;
+        for (int b = 0; b < VEG_BEDS; b++) tank_veg_set(&grown, b, VEG_START);
+        for (int i = 0; i < ALGAE_CELLS; i++) grown.algae[i] = 0;
+        tank_tick_sleep(&grown, 100 * 3600);
+        render_set_scene_cache(scene);            /* invalidated: its own scene */
+        render_tank(&grown, fb, TANK_W);
+        snprintf(path, sizeof path, "%s_grown.ppm", prefix); write_ppm(path, fb);
+        render_set_scene_cache(scene);
+    }
     render_tank(&tank, fb, TANK_W); render_stats_card(&tank, 0, fb, TANK_W);
     snprintf(path, sizeof path, "%s_card.ppm", prefix); write_ppm(path, fb);
     render_tank(&tank, fb, TANK_W); render_stats_card(&tank, 1, fb, TANK_W);

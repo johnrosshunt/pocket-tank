@@ -59,10 +59,21 @@ typedef enum { VEG_KIND_GRASS, VEG_KIND_SWORD } veg_kind_t;
                                                 * body) is a NURSERY: courtship happens
                                                 * low in it and a fry is only born with
                                                 * one somewhere (2026-09-04) */
-#define VEG_SMOTHER 0.85f                      /* the SECOND-tallest bed past this =
+#define VEG_SMOTHER 0.85f                      /* the SECOND-tallest bed past this much
+                                                * of its OWN ceiling (tank_veg_cap) =
                                                 * smothered: real stress, trim it back.
                                                 * One bed at the ceiling is just a
                                                 * good place to hide. */
+/* Every frond has its own ceiling (2026-09-23): a hashed height in
+ * VEG_CAP_LO..VEG_CAP_HI it grows toward and never passes, so a grown bed is
+ * a ragged skyline in the top third of the glass instead of a wall touching
+ * the surface. Growth also eases off over the last VEG_CAP_TAPER of the way
+ * up, so the fronds settle one by one. Fixed per slot (bed, frond): nothing
+ * to save. The keeper (director `veg`, staging) may still set a frond
+ * higher; growth never pulls it back down. Height 1 = the surface. */
+#define VEG_CAP_LO  0.72f
+#define VEG_CAP_HI  0.95f
+#define VEG_CAP_TAPER 0.12f
 #define VEG_FRONDS_MAX 16                      /* per-bed frond slots (reef bed: 11-15) */
 #define VEG_SEGS_FULL 107                      /* frond segments at growth 1: the tip
                                                 * of the tallest frond touches y~10,
@@ -78,7 +89,8 @@ typedef enum { VEG_KIND_GRASS, VEG_KIND_SWORD } veg_kind_t;
                                                 * fry gate, 2026-09-16). Some film is
                                                 * fine; growth stops claiming cells at
                                                 * ALGAE_COVER_CAP (tank.c, 0.30), and one
-                                                * night's sleep films ~25% (selftest-tend) */
+                                                * night's sleep films ~17% (selftest-tend;
+                                                * ~25% before 2026-09-23) */
 
 typedef enum {
     GOAL_SEEK_FOOD, GOAL_FLEE_SHADOW, GOAL_VISIT_BUBBLES, GOAL_FOLLOW_FRIEND,
@@ -447,6 +459,7 @@ int   tank_nursery_bed(const tank_t *t);
  * dirty tank: the fry checklist's GLASS gate (progression.c) */
 float tank_algae_cover(const tank_t *t);
 void  tank_veg_sync(tank_t *t);                 /* veg_growth[] from veg_h[][] (after a load) */
+float tank_veg_cap(int b, int i);               /* frond i of bed b: the height it grows toward */
 void  tank_grow_algae(tank_t *t, int steps);
 
 /* helpers shared with advisor/render/progression */

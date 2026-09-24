@@ -318,14 +318,20 @@ void tank_init(tank_t *t, uint32_t seed) {
  * unease that lifts as soon as one tuft regrows. Rates are per real second;
  * tank_tick runs them awake, tank_tick_sleep runs them faster (an untended
  * dark tank is where the garden gets away from you). */
-#define VEG_GROW_AWAKE_S    108000.0f /* nubs -> full canopy in ~30 h awake */
-#define VEG_GROW_SLEEP_S    36000.0f  /* ~10 h of drowse */
+#define VEG_GROW_AWAKE_S    162000.0f /* nubs -> the ceiling in ~45 h awake (was 30 h
+                                       * until 2026-09-23: a few hours' sleep put
+                                       * every bed at the surface, every time) */
+#define VEG_GROW_SLEEP_S    72000.0f  /* ~20 h of sleep (was 10 h): one night takes a
+                                       * trimmed bed from a third of the glass to
+                                       * two thirds, the second reaches the ceilings */
 #define VEG_SWORD_GROW      1.25f     /* the sword plant grows a bit faster than the
-                                       * grass (nubs -> full in ~24 h awake / ~8 h asleep) */
+                                       * grass (~36 h awake / ~16 h asleep) */
 #define VEG_SEG_PX          3.2f      /* render.c VEG_SEG_DY: px of height per segment */
 #define VEG_SLOW            0.60f     /* cruise speed factor inside a canopy */
 #define ALGAE_STEP_AWAKE_S  240.0f    /* one film growth step per 4 min awake */
-#define ALGAE_STEP_SLEEP_S  120.0f
+#define ALGAE_STEP_SLEEP_S  180.0f    /* (120 until 2026-09-23: a 7 h night filmed the
+                                       * glass to the cap, so every morning looked the
+                                       * same; now a night lands near ALGAE_DIRTY) */
 #define ALGAE_COVER_CAP     0.30f     /* growth stops claiming new cells here */
 #define WIPE_RADIUS      20.0f  /* squeegee half-width around the drag path */
 #define WIPE_ENGAGE_PX   18.0f  /* stroke travel before a drag starts wiping
@@ -427,11 +433,30 @@ static void veg_sync(tank_t *t) {
         t->veg_growth[b] = sum / n;
     }
 }
+/* frond i of bed b grows toward its own ceiling: a hash of the slot spread
+ * over VEG_CAP_LO..VEG_CAP_HI (a different hash than the fresh tank's start
+ * profile, so a tall start does not mean a tall ceiling) */
+float tank_veg_cap(int b, int i) {
+    uint32_t h = (uint32_t)((b * 29 + i + 3) * 2246822519u);
+    return VEG_CAP_LO + (float)(h >> 8 & 1023) / 1023.0f * (VEG_CAP_HI - VEG_CAP_LO);
+}
+/* a bed's mean ceiling: what "full" means for it (the smother band) */
+static float veg_cap_mean(const tank_t *t, int b) {
+    float bx0; int n; veg_bed_base(t, b, &bx0, &n);
+    float sum = 0;
+    for (int i = 0; i < n; i++) sum += tank_veg_cap(b, i);
+    return sum / n;
+}
 static void veg_grow(tank_t *t, float dg) {
     for (int b = 0; b < tank_veg_beds(t); b++) {
         float dgb = tank_veg_kind(t, b) == VEG_KIND_SWORD ? dg * VEG_SWORD_GROW : dg;
-        for (int i = 0; i < VEG_FRONDS_MAX; i++)
-            t->veg_h[b][i] = fminf(1, t->veg_h[b][i] + dgb);
+        for (int i = 0; i < VEG_FRONDS_MAX; i++) {
+            float h = t->veg_h[b][i], cap = tank_veg_cap(b, i);
+            if (h >= cap) continue;                   /* at (or staged above) its ceiling */
+            float room = cap - h;                     /* the last stretch comes in slowly */
+            float ease = room < VEG_CAP_TAPER ? fmaxf(0.3f, room / VEG_CAP_TAPER) : 1.0f;
+            t->veg_h[b][i] = fminf(cap, h + dgb * ease);
+        }
     }
     veg_sync(t);
 }
@@ -1130,9 +1155,10 @@ static void update_fish(tank_t *t, int idx, float dt) {
     /* vegetation comfort (2026-09-04 rework: fish LIKE cover). Three regimes,
      * each seeking its own equilibrium against the natural decay above:
      *  - SMOTHERED: the second-tallest bed past VEG_SMOTHER (85% of the way to
-     *    the surface) - at least two beds crowding the ceiling - is the tank
+     *    its own ceiling, tank_veg_cap - since 2026-09-23 a bed stops short of
+     *    the surface) - at least two beds crowding their ceilings - is the tank
      *    being overrun: real stress, ramping from nothing at 85% to the full
-     *    press at 100% (settles ~6-7 with every bed at the ceiling). One bed
+     *    press at 100% (settles ~6-7 with every bed at its ceiling). One bed
      *    at the ceiling is just a good hiding place, never a stressor.
      *  - BARE: no bed past VEG_BARE - nowhere to hide - is a mild unease
      *    (settles ~1.3) that lifts the moment one tuft regrows.
@@ -1144,7 +1170,8 @@ static void update_fish(tank_t *t, int idx, float dt) {
         int nb = tank_veg_beds(t);
         for (int b = 0; b < nb; b++) {
             float g = t->veg_growth[b];
-            gmean += g / nb;
+            gmean += g / nb;                          /* cover calms by real height */
+            g /= veg_cap_mean(t, b);                  /* the smother band by fullness */
             if (g > g1) { g2 = g1; g1 = g; } else if (g > g2) g2 = g;
         }
         float over = (g2 - VEG_SMOTHER) / (1.0f - VEG_SMOTHER);
