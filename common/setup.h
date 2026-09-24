@@ -101,6 +101,7 @@ enum { SETUP_PG_PLACE = SETUP_PG_BIRTH_END };
 /* element ids (setup_hit / setup_activate) */
 #define SETUP_HIT_NEXT  1
 #define SETUP_HIT_BACK  2
+#define SETUP_HIT_SELL  5                /* the placement page's SELL (top left): once arms it, twice sells the piece */
 #define SETUP_HIT_UP    3                /* the active slot's letter: next (A -> B) */
 #define SETUP_HIT_DOWN  4                /* ... previous */
 #define SETUP_HIT_SLOT0 10               /* + 0..FISH_NAME_MAX-1: pick that slot */
@@ -196,6 +197,16 @@ enum { SETUP_PG_PLACE = SETUP_PG_BIRTH_END };
 #define SETUP_COL_X   ((TANK_W - (SETUP_COL_N - 1) * SETUP_COL_PX - SETUP_COL_W) / 2)
 #define SETUP_COL_Y   (SETUP_DEPTH_Y + SETUP_DEPTH_H + 22)
 #define SETUP_PLACE_CORAL_Y (SETUP_COL_Y + SETUP_COL_H + 8)
+/* the reef cluster's page (2026-09-24): a LOOK row of CLUSTER_SCHEME_N tiles
+ * in the COLOR row's place, each three bands (the coral, the tubes, the
+ * brain) over the look's name; SETUP_HIT_COLOR0 + i picks it */
+#define SETUP_LOOK_N   CLUSTER_SCHEME_N
+#define SETUP_LOOK_W   110
+#define SETUP_LOOK_PX  118
+#define SETUP_LOOK_H   36
+#define SETUP_LOOK_X   ((TANK_W - (SETUP_LOOK_N - 1) * SETUP_LOOK_PX - SETUP_LOOK_W) / 2)
+#define SETUP_LOOK_Y   SETUP_COL_Y
+#define SETUP_PLACE_CLUSTER_Y (SETUP_LOOK_Y + SETUP_LOOK_H + 8)
 /* the stage: the clear spot each page leaves for the fish being edited
  * (tank_t.stage_*), top centre between the buttons */
 #define SETUP_STAGE_X   (TANK_W / 2)

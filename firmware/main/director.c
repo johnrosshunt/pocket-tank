@@ -151,6 +151,10 @@ static void show_state(const tank_t *t) {
         ESP_LOGI(TAG, "coral placed: centre x %.0f (%s), %s, colour %06x, growth %.2f of %.2f (%s)", tank_decor_x(t, 3), t->coral_x > 0 ? "the keeper's" : "the default",
                  t->coral_z == DECOR_Z_BACK ? "BEHIND" : t->coral_z == DECOR_Z_FRONT ? "IN FRONT" : "AMONG the grass", (unsigned)tank_coral_rgb(t),
                  tank_coral_growth(t), CORAL_FULL, tank_coral_growth(t) >= CORAL_FULL ? "the crown is out" : tank_coral_growth(t) >= 1 ? "the fan is complete, the crown coming" : "growing");
+    if (t->sd_unlocks & SD_ITEM_CLUSTER)
+        ESP_LOGI(TAG, "reef cluster placed: centre x %.0f (%s), %s, look %s, growth %.2f of %.0f (%s)", tank_decor_x(t, 4), t->cluster_x > 0 ? "the keeper's" : "the default",
+                 t->cluster_z == DECOR_Z_BACK ? "BEHIND" : t->cluster_z == DECOR_Z_FRONT ? "IN FRONT" : "AMONG the grass", CLUSTER_SCHEMES[tank_cluster_scheme(t)].name,
+                 tank_cluster_growth(t), CLUSTER_FULL, tank_cluster_growth(t) >= CLUSTER_FULL ? "in full bloom" : tank_cluster_growth(t) >= 1 ? "full size, blooming" : "filling out");
     ESP_LOGI(TAG, "nursery bed %d (a bed >= %.2f) | parked real tank: %s", tank_nursery_bed(t), (double)VEG_NURSERY,
              nvs_has("bk") ? "YES (restore)" : "no (this IS the real tank)");
     float bf; bool chg;
@@ -167,7 +171,7 @@ static void help(void) {
     ESP_LOGI(TAG, "STAGED TANKS (the real one is parked first): fresh (new tank, two fry) | stages (fry juv adult elder) | stage <fish|all> <fry|juv|adult|elder>");
     ESP_LOGI(TAG, "stash (park the real tank now) | restore (bring it back) | age <fish> <hours>");
     ESP_LOGI(TAG, "milestones [off] (the page, on cue; on the device: tap the open stats card)");
-    ESP_LOGI(TAG, "shop [off] (the sand dollar page) | dollars [n] (grant n; the balance and the chore counts) | buy plant|snail|castle|coral (at the price) | place [plant|castle|coral] [x [behind|among|front]] (the piece's spot; no x = the page; the castle has no among) | coral <0-7|rrggbb> (its colour) | coral grow <g> (its growth, 1 = the fan, 1.25 = the crown)");
+    ESP_LOGI(TAG, "shop [off] (the sand dollar page) | dollars [n] (grant n; the balance and the chore counts) | buy plant|snail|castle|coral (at the price) | place [plant|castle|coral] [x [behind|among|front]] (the piece's spot; no x = the page; the castle has no among) | coral <0-7|rrggbb> (its colour) | coral grow <g> (its growth, 1 = the fan, 1.25 = the crown) | cluster look <0-2> | cluster grow <g> (1 = full size, 2 = every tentacle) | sell plant|castle|coral|cluster (20%% back)");
     ESP_LOGI(TAG, "reset (the keeper's confirm prompt, as BOOT + tap opens it) | reset yes|no (answer it here) - YES WIPES EVERY SAVE, a parked tank too");
     ESP_LOGI(TAG, "setup [off] (the first-run flow: welcome, names, colours; off drops the panel - the birth flow too) | name <fish|idx> <newname> (up to %d letters, saved)", FISH_NAME_MAX);
     ESP_LOGI(TAG, "battery <pct>|real (a STAGED gauge, as if on battery at pct: the card's pill, and at 10 or less the low-battery notice + cue + the pill that stays; not saved) | snd battery (just the notice + cue)");
@@ -263,8 +267,8 @@ static void run(tank_t *t, char *line) {
         ESP_LOGI(TAG, "sand dollars %d (earned %d) | colonies %d | %.1f in trimmed", (int)t->sd_balance, (int)t->sd_earned,
                  (int)t->algae_colonies, t->trim_px / PX_PER_INCH);
     } else if (!strcmp(c, "buy") && argc > 1) {      /* buy plant|snail: the shop's sale, at the price */
-        int item = !strcmp(argv[1], "plant") ? 0 : !strcmp(argv[1], "snail") ? 1 : !strcmp(argv[1], "castle") ? 2 : !strcmp(argv[1], "coral") ? 3 : -1;
-        if (item < 0) ESP_LOGW(TAG, "buy plant|snail|castle|coral");
+        int item = !strcmp(argv[1], "plant") ? 0 : !strcmp(argv[1], "snail") ? 1 : !strcmp(argv[1], "castle") ? 2 : !strcmp(argv[1], "coral") ? 3 : !strcmp(argv[1], "cluster") ? 4 : -1;
+        if (item < 0) ESP_LOGW(TAG, "buy plant|snail|castle|coral|cluster");
         else if (progression_buy(t, item)) ESP_LOGI(TAG, "%s unlocked, %d sand dollars left%s", SD_ITEMS[item].name, (int)t->sd_balance,
                                                     tank_decor_placeable(item) ? " (`place` opens the placement page)" : "");
         else ESP_LOGW(TAG, "%s refused: owned, or %d < %d", SD_ITEMS[item].name, (int)t->sd_balance, SD_ITEMS[item].price);
@@ -278,13 +282,26 @@ static void run(tank_t *t, char *line) {
         uint32_t rgb = strlen(argv[1]) >= 6 ? (uint32_t)strtoul(argv[1], NULL, 16) : CORAL_PAL[atoi(argv[1]) < 0 ? 0 : atoi(argv[1]) >= CORAL_N ? CORAL_N - 1 : atoi(argv[1])];
         tank_coral_set_rgb(t, rgb); progression_save(t);
         ESP_LOGI(TAG, "coral colour %06x, saved", (unsigned)tank_coral_rgb(t));
-    } else if (!strcmp(c, "place")) {                /* place [plant|castle|coral] [x [behind|among|front]]: the piece's spot; no x = the page */
+    } else if (!strcmp(c, "sell") && argc > 1) {     /* sell plant|castle|coral|cluster: the sale back at 20% (never the snail) */
+        int item = !strcmp(argv[1], "plant") ? 0 : !strcmp(argv[1], "castle") ? 2 : !strcmp(argv[1], "coral") ? 3 : !strcmp(argv[1], "cluster") ? 4 : -1;
+        if (item < 0) ESP_LOGW(TAG, "sell plant|castle|coral|cluster (the snail stays)");
+        else if (progression_sell(t, item)) ESP_LOGI(TAG, "%s sold back for %d, balance %d", SD_ITEMS[item].name, progression_sell_value(item), (int)t->sd_balance);
+        else ESP_LOGW(TAG, "%s: not in the tank", SD_ITEMS[item].name);
+    } else if (!strcmp(c, "cluster") && argc > 1) {  /* cluster look <0-2> | cluster grow <0..2> (1 = full size, 2 = every tentacle) */
+        if (!(t->sd_unlocks & SD_ITEM_CLUSTER)) { ESP_LOGW(TAG, "no cluster in the tank (`buy cluster`)"); return; }
+        if (!strcmp(argv[1], "look") && argc > 2) { tank_cluster_set_scheme(t, atoi(argv[2])); progression_save(t); ESP_LOGI(TAG, "cluster look %s, saved", CLUSTER_SCHEMES[tank_cluster_scheme(t)].name); }
+        else if (!strcmp(argv[1], "grow") && argc > 2) {
+            float g = (float)atof(argv[2]); if (g < CLUSTER_START + 1e-4f) g = CLUSTER_START + 1e-4f; if (g > CLUSTER_FULL) g = CLUSTER_FULL;
+            t->cluster_growth = g; progression_save(t); ESP_LOGI(TAG, "cluster growth %.2f (1 = full size, %.0f = every tentacle), saved", g, CLUSTER_FULL); }
+        else ESP_LOGW(TAG, "cluster look <0-2> | cluster grow <g>");
+    } else if (!strcmp(c, "place")) {                /* place [plant|castle|coral|cluster] [x [behind|among|front]]: the piece's spot; no x = the page */
         int item = 0, a = 1;
         if (argc > 1 && !strcmp(argv[1], "castle")) { item = 2; a = 2; }
         else if (argc > 1 && !strcmp(argv[1], "coral")) { item = 3; a = 2; }
+        else if (argc > 1 && !strcmp(argv[1], "cluster")) { item = 4; a = 2; }
         else if (argc > 1 && !strcmp(argv[1], "plant")) { a = 2; }
-        const char *what = item == 2 ? "castle" : item == 3 ? "coral" : "plant";
-        if (!(t->sd_unlocks & (item == 2 ? SD_ITEM_CASTLE : item == 3 ? SD_ITEM_CORAL : SD_ITEM_PLANT))) { ESP_LOGW(TAG, "no %s in the tank (`buy %s`)", what, what); return; }
+        const char *what = item == 2 ? "castle" : item == 3 ? "coral" : item == 4 ? "cluster" : "plant";
+        if (!(t->sd_unlocks & (item == 2 ? SD_ITEM_CASTLE : item == 3 ? SD_ITEM_CORAL : item == 4 ? SD_ITEM_CLUSTER : SD_ITEM_PLANT))) { ESP_LOGW(TAG, "no %s in the tank (`buy %s`)", what, what); return; }
         if (argc <= a) { touch_port_show_shop(false); setup_begin_place(t, item); ESP_LOGI(TAG, "placement page up (drag on the glass, DEPTH, DONE)"); return; }
         int z = tank_decor_z(t, item);
         if (argc > a + 1) z = !strcmp(argv[a + 1], "behind") || !strcmp(argv[a + 1], "back") ? DECOR_Z_BACK : !strcmp(argv[a + 1], "front") ? DECOR_Z_FRONT : DECOR_Z_MIDDLE;

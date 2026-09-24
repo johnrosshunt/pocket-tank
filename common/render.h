@@ -4,6 +4,7 @@
 #ifndef RENDER_H
 #define RENDER_H
 
+#include <stddef.h>
 #include "tank.h"
 
 /* fb is TANK_W x TANK_H, RGB565, stride in PIXELS (usually TANK_W). */
@@ -124,7 +125,10 @@ void render_milestones_leave(void);
  * to the milestones page, 2026-09-16),
  * SHOP_TAP_KEPT when a modal opened or closed. Page state is render-local;
  * render_shop_leave clears it when the page closes. */
-enum { SHOP_TAP_NONE = 0, SHOP_TAP_KEPT = 1, SHOP_TAP_CLOSE = 2, SHOP_TAP_BUY = 16, SHOP_TAP_MOVE = 32 };   /* BUY / MOVE + item index */
+enum { SHOP_TAP_NONE = 0, SHOP_TAP_KEPT = 1, SHOP_TAP_CLOSE = 2, SHOP_TAP_BUY = 16, SHOP_TAP_MOVE = 32, SHOP_TAP_SELL = 64 };   /* BUY / MOVE / SELL + item index */
+/* SHOP_TAP_SELL (2026-09-24): an owned placeable piece's modal has SELL next
+ * to MOVE; the first tap arms it ("+30 OK?"), the second returns SELL + item
+ * and the platform calls progression_sell. Test SELL before MOVE before BUY. */
 /* SHOP_TAP_MOVE (2026-09-16): an owned, placeable item's modal carries a MOVE
  * button - the platform closes the shop and opens setup.c's placement page
  * (setup_begin_place), the same page a purchase opens. */
@@ -132,6 +136,12 @@ void render_shop(const tank_t *t, uint16_t *fb, int stride);
 int  render_shop_tap(const tank_t *t, float x, float y);
 void render_shop_leave(void);
 int  render_coral_cells(float growth);   /* the coral sprite's filled cells at a growth (the sim's selftest) */
+int  render_cluster_cells(float growth); /* the reef cluster's, likewise */
+/* the decor scratch (2026-09-24): the coral's and the cluster's tables in one
+ * block the platform provides - PSRAM on the board (internal RAM is spoken
+ * for); the sim leaves it unset and render calloc's it */
+size_t render_decor_scratch_size(void);
+void   render_set_decor_scratch(void *buf);
 /* the sand dollar toast: dollars awarded during play (progression_sd_take_award)
  * show as a small pill top centre of the live tank, "+N" beside the coin,
  * for a few seconds; amounts that land while it is up add on. Call every

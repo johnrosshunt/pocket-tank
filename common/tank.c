@@ -102,6 +102,14 @@ const uint32_t LOOK_ACCENT[LOOK_N] = { 0xffbd59, 0xffe08a, 0xa799ff, 0x78d67d, 0
 /* the coral's swatches (2026-09-23): the reference art's orange first, then
  * reef colours - pink, magenta, violet, blue, teal, green, gold */
 const uint32_t CORAL_PAL[CORAL_N] = { 0xff7a1e, 0xf2698f, 0xd24bb4, 0x8a5be0, 0x3f8ff0, 0x2ec9b4, 0x7fc64a, 0xf2c23a };
+/* the reef cluster's three looks (2026-09-24): REEF is the art's - an
+ * orange coral, purple tubes, a cyan brain; LAGOON pink / blue / lime;
+ * DUSK magenta / teal / gold */
+const cluster_scheme_t CLUSTER_SCHEMES[CLUSTER_SCHEME_N] = {
+    { "REEF",   0xff6a2a, 0x9b4fe0, 0x5fd8e8 },
+    { "LAGOON", 0xf25c8a, 0x3f8ff0, 0xb9f04a },
+    { "DUSK",   0xd24bb4, 0x2ec9b4, 0xf2c23a },
+};
 
 void tank_set_name(tank_t *t, int slot, const char *name) {
     if (slot < 0 || slot >= N_FISH_MAX) return;
@@ -271,7 +279,8 @@ void tank_init(tank_t *t, uint32_t seed) {
     t->snail_grazed = 0;
     t->plant_x = 0; t->plant_z = DECOR_Z_MIDDLE;
     t->castle_x = 0; t->castle_z = DECOR_Z_FRONT;
-    t->coral_x = 0; t->coral_z = DECOR_Z_MIDDLE; t->coral_rgb = 0; t->coral_growth = 0; t->coral_acc = 0;
+    t->coral_x = 0; t->coral_z = DECOR_Z_FRONT; t->coral_rgb = 0; t->coral_growth = 0; t->coral_acc = 0;
+    t->cluster_x = 0; t->cluster_z = DECOR_Z_FRONT; t->cluster_scheme = 0; t->cluster_growth = 0; t->cluster_acc = 0;
     t->tank_ms_bits = 0; t->tank_ms_seen = 0; t->ask_rr = 0; t->advisor_asks = 0;
     tank_scatter_food(t, 2);
 }
@@ -743,7 +752,7 @@ void tank_castle_place(tank_t *t) {
     t->castle_x = 0; t->castle_z = DECOR_Z_FRONT;          /* the default spot, the fish swim through */
 }
 void tank_coral_place(tank_t *t) {
-    t->coral_x = 0; t->coral_z = DECOR_Z_MIDDLE;           /* the default spot, in the reef bed's grass; the colour stays the keeper's */
+    t->coral_x = 0; t->coral_z = DECOR_Z_FRONT;            /* the default spot, in front of the reef bed's grass; the colour stays the keeper's */
     t->coral_growth = CORAL_START;                          /* young: it grows from here */
 }
 uint32_t tank_coral_rgb(const tank_t *t) { return t->coral_rgb ? t->coral_rgb : CORAL_PAL[0]; }
@@ -752,23 +761,61 @@ static void coral_grow(tank_t *t, float seconds) {          /* the same pace awa
     if (!(t->sd_unlocks & SD_ITEM_CORAL) || t->coral_growth <= 0 || t->coral_growth >= CORAL_FULL) return;
     t->coral_growth = fminf(CORAL_FULL, t->coral_growth + seconds / CORAL_GROW_S);
 }
+void tank_cluster_place(tank_t *t) {
+    t->cluster_x = 0; t->cluster_z = DECOR_Z_FRONT;         /* the default spot; the look stays the keeper's */
+    t->cluster_growth = CLUSTER_START + 1e-4f;              /* > 0: growing (0 in a save = full, tank_cluster_growth) */
+}
+float tank_cluster_growth(const tank_t *t) { return t->cluster_growth <= 0 ? CLUSTER_FULL : t->cluster_growth > CLUSTER_FULL ? CLUSTER_FULL : t->cluster_growth; }
+int   tank_cluster_scheme(const tank_t *t) { return t->cluster_scheme < CLUSTER_SCHEME_N ? t->cluster_scheme : 0; }
+void  tank_cluster_set_scheme(tank_t *t, int i) { t->cluster_scheme = (uint8_t)(i < 0 ? 0 : i >= CLUSTER_SCHEME_N ? CLUSTER_SCHEME_N - 1 : i); }
+static void cluster_grow(tank_t *t, float seconds) {
+    if (!(t->sd_unlocks & SD_ITEM_CLUSTER) || t->cluster_growth <= 0 || t->cluster_growth >= CLUSTER_FULL) return;
+    t->cluster_growth = fminf(CLUSTER_FULL, t->cluster_growth + seconds / CLUSTER_GROW_S);
+}
 void     tank_coral_set_rgb(tank_t *t, uint32_t rgb) { t->coral_rgb = rgb & 0xffffff; }
-/* the decor's spot and layer (see tank.h): item 0 is the plant, item 2 the castle, item 3 the coral */
-bool  tank_decor_placeable(int item) { return item == 0 || item == 2 || item == 3; }
-float tank_decor_half_w(int item) { return item == 0 ? PLANT_HALF_W : item == 2 ? CASTLE_HALF_W : item == 3 ? CORAL_HALF_W : 0; }
-int   tank_decor_z_count(int item) { return item == 2 ? 2 : DECOR_Z_N; }
+/* the decor's spot and layer (see tank.h): item 0 is the plant, item 2 the castle, item 3 the coral, item 4 the cluster */
+bool  tank_decor_placeable(int item) { return item == 0 || item == 2 || item == 3 || item == 4; }
+float tank_decor_half_w(int item) { return item == 0 ? PLANT_HALF_W : item == 2 ? CASTLE_HALF_W : item == 3 ? CORAL_HALF_W : item == 4 ? CLUSTER_HALF_W : 0; }
+/* only the plant weaves AMONG the fish; the castle and both corals are
+ * BEHIND or IN FRONT (Strato, 2026-09-24: "remove the among option for
+ * corals, it doesn't really make as much sense") */
+int   tank_decor_z_count(int item) { return item == 0 ? DECOR_Z_N : 2; }
 int   tank_decor_z_at(int item, int i) {
-    if (item == 2) return i <= 0 ? DECOR_Z_BACK : DECOR_Z_FRONT;
+    if (item != 0) return i <= 0 ? DECOR_Z_BACK : DECOR_Z_FRONT;
     return i < 0 ? 0 : i >= DECOR_Z_N ? DECOR_Z_N - 1 : i;
 }
-int   tank_decor_z_index(int item, int z) { return item == 2 ? (z == DECOR_Z_BACK ? 0 : 1) : z; }
+int   tank_decor_z_index(int item, int z) { return item != 0 ? (z == DECOR_Z_BACK ? 0 : 1) : z; }
 float tank_decor_x(const tank_t *t, int item) {
     if (item == 2) return t->castle_x > 0 ? t->castle_x : CASTLE_X_DEFAULT;
     if (item == 3) return t->coral_x > 0 ? t->coral_x : CORAL_X_DEFAULT;
+    if (item == 4) return t->cluster_x > 0 ? t->cluster_x : CLUSTER_X_DEFAULT;
     if (item != 0) return 0;
     return t->plant_x > 0 ? t->plant_x : PLANT_X_DEFAULT;
 }
-int tank_decor_z(const tank_t *t, int item) { return item == 0 ? t->plant_z : item == 2 ? t->castle_z : item == 3 ? t->coral_z : DECOR_Z_MIDDLE; }
+int tank_decor_z(const tank_t *t, int item) { return item == 0 ? t->plant_z : item == 2 ? t->castle_z : item == 3 ? t->coral_z : item == 4 ? t->cluster_z : DECOR_Z_MIDDLE; }
+static float decor_top(const tank_t *t, int item) {         /* the piece's highest pixel */
+    if (item == 0) { float top; tank_veg_bed(t, 3, NULL, NULL, &top, NULL); return top; }
+    if (item == 2) return TANK_H - 16 - 146;
+    if (item == 3) return TANK_H - 14 + DECOR_SINK - 92;
+    return TANK_H - 14 + DECOR_SINK - 120;
+}
+int tank_decor_hit(const tank_t *t, float x, float y) {
+    static const int order[4] = { 3, 0, 2, 4 };               /* the coral, the plant, the castle, the cluster */
+    static const uint32_t bits[5] = { SD_ITEM_PLANT, 0, SD_ITEM_CASTLE, SD_ITEM_CORAL, SD_ITEM_CLUSTER };
+    for (int k = 0; k < 4; k++) {
+        int item = order[k];
+        if (!(t->sd_unlocks & bits[item])) continue;
+        float cx = tank_decor_x(t, item), half = tank_decor_half_w(item) + 8;
+        if (x >= cx - half && x <= cx + half && y >= decor_top(t, item) - 8 && y <= TANK_H) return item;
+    }
+    return -1;
+}
+void tank_decor_reset(tank_t *t, int item) {
+    if (item == 0) { t->plant_x = 0; t->plant_z = DECOR_Z_MIDDLE; tank_veg_set(t, 3, VEG_START); }
+    if (item == 2) { t->castle_x = 0; t->castle_z = DECOR_Z_FRONT; }
+    if (item == 3) { t->coral_x = 0; t->coral_z = DECOR_Z_FRONT; t->coral_rgb = 0; t->coral_growth = 0; t->coral_acc = 0; }
+    if (item == 4) { t->cluster_x = 0; t->cluster_z = DECOR_Z_FRONT; t->cluster_scheme = 0; t->cluster_growth = 0; t->cluster_acc = 0; }
+}
 void tank_decor_set(tank_t *t, int item, float x, int z) {
     if (!tank_decor_placeable(item)) return;
     float half = tank_decor_half_w(item), lo = DECOR_MARGIN + half, hi = TANK_W - DECOR_MARGIN - half;
@@ -776,8 +823,10 @@ void tank_decor_set(tank_t *t, int item, float x, int z) {
     if (x > hi) x = hi;
     if (z < 0) z = 0;
     if (z >= DECOR_Z_N) z = DECOR_Z_N - 1;
-    if (item == 2) { t->castle_x = x; t->castle_z = (uint8_t)(z == DECOR_Z_BACK ? DECOR_Z_BACK : DECOR_Z_FRONT); return; }   /* no AMONG */
-    if (item == 3) { t->coral_x = x; t->coral_z = (uint8_t)z; return; }
+    uint8_t z2 = (uint8_t)(z == DECOR_Z_BACK ? DECOR_Z_BACK : DECOR_Z_FRONT);   /* no AMONG for these */
+    if (item == 2) { t->castle_x = x; t->castle_z = z2; return; }
+    if (item == 3) { t->coral_x = x; t->coral_z = z2; return; }
+    if (item == 4) { t->cluster_x = x; t->cluster_z = z2; return; }
     t->plant_x = x; t->plant_z = (uint8_t)z;
 }
 
@@ -993,6 +1042,7 @@ void tank_tick_sleep(tank_t *t, float seconds) {
      * canopy and film on the glass is the morning chore */
     veg_grow(t, seconds / VEG_GROW_SLEEP_S);
     coral_grow(t, seconds);
+    cluster_grow(t, seconds);
     snail_sleep(t, seconds);
     /* film steps go through the same accumulator the awake tick uses: the
      * device drowses in 60 s slices (firmware DROWSE_TICK_US) and
@@ -1480,6 +1530,8 @@ void tank_tick(tank_t *t, float dt, advisor_fn advise) {
     veg_grow(t, dt / VEG_GROW_AWAKE_S);
     t->coral_acc += dt;                                     /* by the minute: see tank_t.coral_acc */
     if (t->coral_acc >= 60) { coral_grow(t, t->coral_acc); t->coral_acc = 0; }
+    t->cluster_acc += dt;
+    if (t->cluster_acc >= 60) { cluster_grow(t, t->cluster_acc); t->cluster_acc = 0; }
     t->algae_acc += dt;
     if (t->algae_acc >= ALGAE_STEP_AWAKE_S) {
         t->algae_acc -= ALGAE_STEP_AWAKE_S;

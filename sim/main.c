@@ -1603,10 +1603,49 @@ static int snapshot(const char *prefix, int seconds) {
         tank_decor_set(&tank, 3, 150, DECOR_Z_BACK); tank_coral_set_rgb(&tank, CORAL_PAL[1]);
         render_tank(&tank, fb, TANK_W); render_tank(&tank, fb, TANK_W);
         snprintf(path, sizeof path, "%s_coral_behind.ppm", prefix); write_ppm(path, fb);
-        tank_decor_set(&tank, 3, 150, DECOR_Z_MIDDLE); tank_coral_set_rgb(&tank, CORAL_PAL[0]); setup_begin_place(&tank, 3);
+        tank_decor_set(&tank, 3, 150, DECOR_Z_FRONT); tank_coral_set_rgb(&tank, CORAL_PAL[0]); setup_begin_place(&tank, 3);
         render_tank(&tank, fb, TANK_W); render_setup(&tank, fb, TANK_W, 1.0f);
         snprintf(path, sizeof path, "%s_place_coral.ppm", prefix); write_ppm(path, fb);
         setup_cancel(&tank);
+    }
+    /* the reef cluster (2026-09-24): the day it is bought (REEF, AMONG, the
+       coral gone), full size, in bloom; LAGOON in front; DUSK behind; its
+       page with the LOOK row; the shop's second page */
+    {
+        tank.sd_unlocks &= ~SD_ITEM_CORAL;
+        tank.sd_unlocks |= SD_ITEM_CLUSTER; tank_cluster_place(&tank); tank_cluster_set_scheme(&tank, 0);
+        tank_veg_set(&tank, 1, 0.5f); tank_veg_set(&tank, 2, 0.45f);
+        tank.fish[0].x = 290; tank.fish[0].y = TANK_H - 16 - 50; tank.fish[0].heading = 0;
+        tank.fish[3].x = 370; tank.fish[3].y = TANK_H - 16 - 100; tank.fish[3].heading = 3.0f;
+        for (int i = 0; i < 30; i++) render_tank(&tank, fb, TANK_W);
+        snprintf(path, sizeof path, "%s_cluster_young.ppm", prefix); write_ppm(path, fb);
+        tank.cluster_growth = 1.0f; render_tank(&tank, fb, TANK_W); render_tank(&tank, fb, TANK_W);
+        snprintf(path, sizeof path, "%s_cluster_full.ppm", prefix); write_ppm(path, fb);
+        tank.cluster_growth = CLUSTER_FULL; render_tank(&tank, fb, TANK_W); render_tank(&tank, fb, TANK_W);
+        snprintf(path, sizeof path, "%s_cluster.ppm", prefix); write_ppm(path, fb);
+        tank_decor_set(&tank, 4, 330, DECOR_Z_FRONT); tank_cluster_set_scheme(&tank, 1); render_tank(&tank, fb, TANK_W); render_tank(&tank, fb, TANK_W);
+        snprintf(path, sizeof path, "%s_cluster_front.ppm", prefix); write_ppm(path, fb);
+        tank_decor_set(&tank, 4, 330, DECOR_Z_BACK); tank_cluster_set_scheme(&tank, 2); render_tank(&tank, fb, TANK_W); render_tank(&tank, fb, TANK_W);
+        snprintf(path, sizeof path, "%s_cluster_behind.ppm", prefix); write_ppm(path, fb);
+        tank_decor_set(&tank, 4, 330, DECOR_Z_FRONT); tank_cluster_set_scheme(&tank, 0); setup_begin_place(&tank, 4);
+        render_tank(&tank, fb, TANK_W); render_setup(&tank, fb, TANK_W, 1.0f);
+        snprintf(path, sizeof path, "%s_place_cluster.ppm", prefix); write_ppm(path, fb);
+        setup_cancel(&tank);
+        tank.sd_unlocks |= SD_ITEM_CASTLE; tank_castle_place(&tank);
+        render_shop_leave(); render_shop(&tank, fb, TANK_W); render_shop_tap(&tank, 100, 98 + 2 * 56 + 20);
+        render_shop(&tank, fb, TANK_W); render_shop_tap(&tank, 48 + (352 - 216) / 2 + 116 + 50, 48 + 244 - 12 - 16);   /* SELL, armed */
+        render_shop(&tank, fb, TANK_W);
+        snprintf(path, sizeof path, "%s_shop_sell.ppm", prefix); write_ppm(path, fb);
+        render_shop_leave();
+        setup_begin_place(&tank, 2); setup_activate(&tank, SETUP_HIT_SELL);   /* the page, SELL armed */
+        render_tank(&tank, fb, TANK_W); render_setup(&tank, fb, TANK_W, 1.0f);
+        snprintf(path, sizeof path, "%s_place_sell.ppm", prefix); write_ppm(path, fb);
+        setup_cancel(&tank); tank.sd_unlocks &= ~SD_ITEM_CASTLE;
+        render_shop_leave(); render_shop(&tank, fb, TANK_W);
+        render_shop_tap(&tank, 400, 30);                              /* the header's right arrow: page 2 */
+        render_shop(&tank, fb, TANK_W);
+        snprintf(path, sizeof path, "%s_shop2.ppm", prefix); write_ppm(path, fb);
+        render_shop_leave();
     }
     printf("snapshot: %d fish, wrote %s_{tank,card,card1,milestones,milestones_fry,confirm,setup_*}.ppm\n", tank.n_fish, prefix);
     return 0;
@@ -1812,7 +1851,7 @@ static int selftest_shop(void) {
         if (tank_decor_x(&tank, 0) != TANK_W - DECOR_MARGIN - PLANT_HALF_W) { printf("FAIL: the plant went through the right glass (x %.0f)\n", tank_decor_x(&tank, 0)); return 1; }
         setup_touch(&tank, 300, 250, true); setup_touch(&tank, 300, 250, false);
         if (setup_hit(SETUP_DEPTH_X + 10, SETUP_DEPTH_Y + 10) != SETUP_HIT_Z0 + DECOR_Z_BACK || setup_hit(SETUP_DEPTH_X + 2 * SETUP_DEPTH_SEG_W + 100, SETUP_DEPTH_Y + SETUP_DEPTH_H + 4) != SETUP_HIT_Z0 + DECOR_Z_FRONT
-            || setup_hit(SETUP_TOP_NEXT_X + 20, SETUP_TOP_BTN_Y + 20) != SETUP_HIT_NEXT || setup_hit(SETUP_TOP_BACK_X + 20, SETUP_TOP_BTN_Y + 20) != 0) { printf("FAIL: the placement page's buttons moved\n"); return 1; }
+            || setup_hit(SETUP_TOP_NEXT_X + 20, SETUP_TOP_BTN_Y + 20) != SETUP_HIT_NEXT || setup_hit(SETUP_TOP_BACK_X + 20, SETUP_TOP_BTN_Y + 20) != SETUP_HIT_SELL) { printf("FAIL: the placement page's buttons moved\n"); return 1; }   /* SELL took BACK's corner (2026-09-24) */
         setup_touch(&tank, SETUP_DEPTH_X + 2 * SETUP_DEPTH_SEG_W + 50, SETUP_DEPTH_Y + 18, true);
         setup_touch(&tank, SETUP_DEPTH_X + 2 * SETUP_DEPTH_SEG_W + 52, SETUP_DEPTH_Y + 20, false);
         if (tank_decor_z(&tank, 0) != DECOR_Z_FRONT || fabsf(tank_decor_x(&tank, 0) - 300) > 0.01f) { printf("FAIL: FRONT did not set the layer (z %d, x %.0f)\n", tank_decor_z(&tank, 0), tank_decor_x(&tank, 0)); return 1; }
@@ -1850,7 +1889,7 @@ static int selftest_shop(void) {
            walls; BEHIND the fish and the grass pass in front of it; the spot and
            the depth survive a save */
         {
-            if (SD_ITEM_COUNT != 4 || SD_ITEMS[2].bit != SD_ITEM_CASTLE || SD_ITEMS[2].price != SD_PRICE_CASTLE) { printf("FAIL: the castle is not the third item\n"); return 1; }
+            if (SD_ITEM_COUNT != 5 || SD_ITEMS[2].bit != SD_ITEM_CASTLE || SD_ITEMS[2].price != SD_PRICE_CASTLE) { printf("FAIL: the castle is not the third item\n"); return 1; }
             if (!tank_decor_placeable(2) || tank_decor_z_count(2) != 2 || tank_decor_z_at(2, 0) != DECOR_Z_BACK || tank_decor_z_at(2, 1) != DECOR_Z_FRONT
                 || tank_decor_z_index(2, DECOR_Z_FRONT) != 1 || tank_decor_z_index(2, DECOR_Z_BACK) != 0) { printf("FAIL: the castle's depths\n"); return 1; }
             tank.sd_balance = SD_PRICE_CASTLE - 1;
@@ -1917,7 +1956,7 @@ static int selftest_shop(void) {
         render_shop(&tank, fb, TANK_W);
         if (render_shop_tap(&tank, 100, 98 + 20) != SHOP_TAP_KEPT) { printf("FAIL: the owned plant's row did not open its modal\n"); return 1; }
         render_shop(&tank, fb, TANK_W);
-        if (render_shop_tap(&tank, 56 + 336 / 2, 48 + 244 - 12 - 16) != SHOP_TAP_MOVE + 0) { printf("FAIL: MOVE in the owned modal\n"); return 1; }
+        if (render_shop_tap(&tank, 48 + (352 - 216) / 2 + 50, 48 + 244 - 12 - 16) != SHOP_TAP_MOVE + 0) { printf("FAIL: MOVE in the owned modal\n"); return 1; }   /* MOVE is the left of two buttons since SELL (2026-09-24) */
         tank.sd_balance = 5; want = tank.sd_balance;
         render_shop(&tank, fb, TANK_W);
         if (render_shop_tap(&tank, 100, 98 + 56 + 20) != SHOP_TAP_KEPT) { printf("FAIL: the snail's row did not open its modal\n"); return 1; }
@@ -1936,17 +1975,20 @@ static int selftest_shop(void) {
     {
         static uint16_t fb[TANK_W * TANK_H];
         if (SD_ITEMS[3].bit != SD_ITEM_CORAL || SD_ITEMS[3].price != SD_PRICE_CORAL || SD_PRICE_CORAL != 100) { printf("FAIL: the coral is not the fourth item at 100\n"); return 1; }
-        if (!tank_decor_placeable(3) || tank_decor_z_count(3) != 3 || tank_decor_z_at(3, 1) != DECOR_Z_MIDDLE || tank_decor_half_w(3) != CORAL_HALF_W) { printf("FAIL: the coral's depths\n"); return 1; }
+        if (!tank_decor_placeable(3) || tank_decor_z_count(3) != 2 || tank_decor_z_at(3, 1) != DECOR_Z_FRONT || tank_decor_z_at(3, 0) != DECOR_Z_BACK || tank_decor_half_w(3) != CORAL_HALF_W) { printf("FAIL: the coral's depths (BEHIND / IN FRONT only)\n"); return 1; }
         tank.sd_unlocks &= ~SD_ITEM_CORAL; tank.sd_balance = SD_PRICE_CORAL - 1;
         if (progression_buy(&tank, 3)) { printf("FAIL: the coral sold short\n"); return 1; }
         tank.sd_balance = SD_PRICE_CORAL;
         if (!progression_buy(&tank, 3) || tank.sd_balance != 0 || !(tank.sd_unlocks & SD_ITEM_CORAL)) { printf("FAIL: the coral did not sell at %d\n", SD_PRICE_CORAL); return 1; }
-        if (fabsf(tank_decor_x(&tank, 3) - CORAL_X_DEFAULT) > 0.01f || tank_decor_z(&tank, 3) != DECOR_Z_MIDDLE || tank_coral_rgb(&tank) != CORAL_PAL[0]) { printf("FAIL: the coral did not land at the default spot, AMONG, in the first colour\n"); return 1; }
+        if (fabsf(tank_decor_x(&tank, 3) - CORAL_X_DEFAULT) > 0.01f || tank_decor_z(&tank, 3) != DECOR_Z_FRONT || tank_coral_rgb(&tank) != CORAL_PAL[0]) { printf("FAIL: the coral did not land at the default spot, IN FRONT, in the first colour\n"); return 1; }
+        tank_decor_set(&tank, 3, 150, DECOR_Z_MIDDLE);
+        if (tank_decor_z(&tank, 3) != DECOR_Z_FRONT) { printf("FAIL: the coral took AMONG\n"); return 1; }
+        tank_decor_set(&tank, 3, 150, DECOR_Z_BACK);
         /* the shop page: the fourth row opens its modal, MOVE in it */
         render_shop_leave(); render_shop(&tank, fb, TANK_W);
         if (render_shop_tap(&tank, 100, 98 + 3 * 56 + 20) != SHOP_TAP_KEPT) { printf("FAIL: the coral's row did not open its modal\n"); return 1; }
         render_shop(&tank, fb, TANK_W);
-        if (render_shop_tap(&tank, 48 + 352 / 2, 48 + 244 - 12 - 16) != SHOP_TAP_MOVE + 3) { printf("FAIL: MOVE in the coral's modal\n"); return 1; }
+        if (render_shop_tap(&tank, 48 + (352 - 216) / 2 + 50, 48 + 244 - 12 - 16) != SHOP_TAP_MOVE + 3) { printf("FAIL: MOVE in the coral's modal\n"); return 1; }
         render_shop_leave();
         /* its placement page: the COLOR row above the water, a swatch sets the colour, the drag carries it, DONE saves all three */
         setup_begin_place(&tank, 3);
@@ -1957,8 +1999,8 @@ static int selftest_shop(void) {
         setup_touch(&tank, sx, SETUP_COL_Y + 10, true); setup_touch(&tank, sx + 1, SETUP_COL_Y + 12, false);
         if (tank_coral_rgb(&tank) != CORAL_PAL[3]) { printf("FAIL: the swatch did not colour the coral (%06x)\n", (unsigned)tank_coral_rgb(&tank)); return 1; }
         render_tank(&tank, fb, TANK_W); render_setup(&tank, fb, TANK_W, 1.0f);        /* the page draws, the coral in the new colour */
-        int bx = (TANK_W - 3 * SETUP_DEPTH_SEG_W) / 2;
-        setup_touch(&tank, bx + 2 * SETUP_DEPTH_SEG_W + 10, SETUP_DEPTH_Y + 18, true); setup_touch(&tank, bx + 2 * SETUP_DEPTH_SEG_W + 12, SETUP_DEPTH_Y + 20, false);
+        int bx = (TANK_W - 2 * SETUP_DEPTH_SEG_W) / 2;
+        setup_touch(&tank, bx + SETUP_DEPTH_SEG_W + 10, SETUP_DEPTH_Y + 18, true); setup_touch(&tank, bx + SETUP_DEPTH_SEG_W + 12, SETUP_DEPTH_Y + 20, false);
         if (tank_decor_z(&tank, 3) != DECOR_Z_FRONT) { printf("FAIL: IN FRONT did not set the coral's depth\n"); return 1; }
         setup_touch(&tank, 120, SETUP_PLACE_CORAL_Y + 20, true); setup_touch(&tank, 320, SETUP_PLACE_CORAL_Y + 20, true); setup_touch(&tank, 320, SETUP_PLACE_CORAL_Y + 20, false);
         if (fabsf(tank_decor_x(&tank, 3) - 320) > 0.01f) { printf("FAIL: the drag did not carry the coral (x %.0f)\n", tank_decor_x(&tank, 3)); return 1; }
@@ -1999,6 +2041,126 @@ static int selftest_shop(void) {
         if (tank_coral_growth(&tank) != CORAL_FULL) { printf("FAIL: the save lost the coral's growth\n"); return 1; }
         printf("selftest-shop: the coral grows: a day +%.3f, a minute awake +%.6f; %d / %d / %d cells young / half / fan; 40 days = %.2f with a crown of %d px; saved\n", g1 - g0, g2 - g1, c_young, c_half, c_fan, CORAL_FULL, crown);
         tank_veg_set(&tank, 3, VEG_START);
+    }
+    /* the reef cluster (2026-09-24): the fifth item at 240, on the shop's
+       SECOND page (the header's arrows: the right one flips, the left one
+       back; a row on page 2 opens the cluster's modal); it arrives at 80% of
+       its full size and fills out in two weeks, then blooms tentacle by
+       tentacle over two more; its LOOK row picks one of three schemes; the
+       save keeps spot, depth, look and growth */
+    {
+        static uint16_t fb[TANK_W * TANK_H];
+        if (SD_ITEMS[4].bit != SD_ITEM_CLUSTER || SD_ITEMS[4].price != SD_PRICE_CLUSTER || SD_PRICE_CLUSTER != 240) { printf("FAIL: the cluster is not the fifth item at 240\n"); return 1; }
+        if (!tank_decor_placeable(4) || tank_decor_z_count(4) != 2 || tank_decor_half_w(4) != CLUSTER_HALF_W) { printf("FAIL: the cluster's depths (BEHIND / IN FRONT only)\n"); return 1; }
+        render_shop_leave(); render_shop(&tank, fb, TANK_W);
+        if (render_shop_tap(&tank, 100, 98 + 20) != SHOP_TAP_KEPT) { printf("FAIL: page 1 row 0\n"); return 1; }
+        render_shop_leave(); render_shop(&tank, fb, TANK_W);
+        if (render_shop_tap(&tank, 400, 30) != SHOP_TAP_KEPT) { printf("FAIL: the right arrow\n"); return 1; }
+        render_shop(&tank, fb, TANK_W);                                /* page 2: row 0 is the cluster */
+        if (render_shop_tap(&tank, 100, 98 + 20) != SHOP_TAP_KEPT) { printf("FAIL: page 2 row 0 did not open a modal\n"); return 1; }
+        render_shop(&tank, fb, TANK_W);
+        tank.sd_unlocks &= ~SD_ITEM_CLUSTER; tank.sd_balance = SD_PRICE_CLUSTER;
+        int r = render_shop_tap(&tank, 48 + 352 / 2, 48 + 244 - 12 - 16);
+        if (r != SHOP_TAP_BUY + 4) { printf("FAIL: UNLOCK in the cluster's modal returned %d\n", r); return 1; }
+        if (render_shop_tap(&tank, 100, 98 + 56 + 20) != SHOP_TAP_NONE) { printf("FAIL: page 2 has a second row\n"); return 1; }
+        if (render_shop_tap(&tank, 350, 30) != SHOP_TAP_KEPT) { printf("FAIL: the left arrow\n"); return 1; }
+        render_shop(&tank, fb, TANK_W);
+        if (render_shop_tap(&tank, 100, 98 + 3 * 56 + 20) != SHOP_TAP_KEPT) { printf("FAIL: back on page 1, row 3 (the coral)\n"); return 1; }
+        render_shop_leave();
+        tank.sd_balance = SD_PRICE_CLUSTER - 1;
+        if (progression_buy(&tank, 4)) { printf("FAIL: the cluster sold short\n"); return 1; }
+        tank.sd_balance = SD_PRICE_CLUSTER;
+        if (!progression_buy(&tank, 4) || tank.sd_balance != 0 || !(tank.sd_unlocks & SD_ITEM_CLUSTER)) { printf("FAIL: the cluster did not sell at %d\n", SD_PRICE_CLUSTER); return 1; }
+        if (fabsf(tank_decor_x(&tank, 4) - CLUSTER_X_DEFAULT) > 0.01f || tank_decor_z(&tank, 4) != DECOR_Z_FRONT || tank_cluster_growth(&tank) > 0.01f) { printf("FAIL: the cluster's arrival (x %.0f z %d g %.3f)\n", tank_decor_x(&tank, 4), tank_decor_z(&tank, 4), tank_cluster_growth(&tank)); return 1; }
+        int c_young = render_cluster_cells(0), c_full = render_cluster_cells(1.0f);
+        if (!(c_young < c_full) || c_young < 1000 || c_young * 100 / c_full < 60) { printf("FAIL: the cluster's size phase (%d young, %d full cells)\n", c_young, c_full); return 1; }
+        float g0 = tank_cluster_growth(&tank);
+        tank_tick_sleep(&tank, 86400);
+        float g1 = tank_cluster_growth(&tank);
+        for (int i = 0; i < 61 * 60; i++) tank_tick(&tank, 1.0f / 60.0f, advisor_rules);
+        float g2 = tank_cluster_growth(&tank);
+        if (g1 - g0 < 0.070f || g1 - g0 > 0.073f || g2 - g1 < 4.5e-5f || g2 - g1 > 5.5e-5f) { printf("FAIL: the cluster's pace (day +%.4f, minute +%.6f)\n", g1 - g0, g2 - g1); return 1; }
+        tank_tick_sleep(&tank, 40 * 86400);
+        if (tank_cluster_growth(&tank) != CLUSTER_FULL) { printf("FAIL: 41 days did not finish the cluster (%.2f)\n", tank_cluster_growth(&tank)); return 1; }
+        /* the page: the LOOK row, DUSK, then the drag; DONE saves */
+        setup_begin_place(&tank, 4);
+        if (!setup_is_place() || setup_item() != 4) { printf("FAIL: the cluster's placement page did not open\n"); return 1; }
+        int lx = SETUP_LOOK_X + 2 * SETUP_LOOK_PX + SETUP_LOOK_W / 2;
+        if (setup_hit(lx, SETUP_LOOK_Y + 10) != SETUP_HIT_COLOR0 + 2) { printf("FAIL: the third look's hit\n"); return 1; }
+        setup_touch(&tank, lx, SETUP_LOOK_Y + 10, true); setup_touch(&tank, lx + 1, SETUP_LOOK_Y + 12, false);
+        if (tank_cluster_scheme(&tank) != 2) { printf("FAIL: the tile did not set the look\n"); return 1; }
+        render_tank(&tank, fb, TANK_W); render_setup(&tank, fb, TANK_W, 1.0f);
+        setup_touch(&tank, 120, SETUP_PLACE_CLUSTER_Y + 20, true); setup_touch(&tank, 250, SETUP_PLACE_CLUSTER_Y + 20, true); setup_touch(&tank, 250, SETUP_PLACE_CLUSTER_Y + 20, false);
+        if (fabsf(tank_decor_x(&tank, 4) - 250) > 0.01f) { printf("FAIL: the drag did not carry the cluster (x %.0f)\n", tank_decor_x(&tank, 4)); return 1; }
+        setup_activate(&tank, SETUP_HIT_NEXT);
+        /* the bloom: at CLUSTER_FULL pixels differ from full size without it, above the rock */
+        tank_decor_set(&tank, 4, 250, DECOR_Z_FRONT);
+        tank.cluster_growth = 1.0f; render_tank(&tank, fb, TANK_W); render_tank(&tank, fb, TANK_W);
+        static uint16_t fb2[TANK_W * TANK_H]; memcpy(fb2, fb, sizeof fb2);
+        tank.cluster_growth = CLUSTER_FULL; render_tank(&tank, fb, TANK_W); render_tank(&tank, fb, TANK_W);
+        int bloom = 0;
+        for (int y = TANK_H - 14 - 140; y < TANK_H - 14 - 20; y++) for (int x = 250 - 80; x < 250 + 80; x++) bloom += fb[y * TANK_W + x] != fb2[y * TANK_W + x];
+        if (bloom < 150) { printf("FAIL: no bloom on the grown cluster (%d px differ)\n", bloom); return 1; }
+        tank_decor_set(&tank, 4, 250, DECOR_Z_BACK); render_tank(&tank, fb, TANK_W); render_tank(&tank, fb, TANK_W);   /* BEHIND: baked, no crash */
+        progression_save(&tank); tank_init(&tank, 4245); progression_boot(&tank);
+        if (!(tank.sd_unlocks & SD_ITEM_CLUSTER) || fabsf(tank_decor_x(&tank, 4) - 250) > 0.01f || tank_decor_z(&tank, 4) != DECOR_Z_BACK || tank_cluster_scheme(&tank) != 2 || tank_cluster_growth(&tank) != CLUSTER_FULL) {
+            printf("FAIL: the save lost the cluster (x %.0f z %d look %d g %.2f)\n", tank_decor_x(&tank, 4), tank_decor_z(&tank, 4), tank_cluster_scheme(&tank), tank_cluster_growth(&tank)); return 1; }
+        printf("selftest-shop: the reef cluster: page 2 by the arrows, UNLOCK at %d, arrives at %d%% (%d / %d cells), a day +%.3f, LOOK -> DUSK, dragged to 250, a bloom of %d px, saved\n", SD_PRICE_CLUSTER, c_young * 100 / c_full, c_young, c_full, g1 - g0, bloom);
+        tank_veg_set(&tank, 3, VEG_START);
+    }
+    /* selling back (2026-09-24): an owned placeable piece's modal has MOVE and
+       SELL; SELL arms on the first tap and sells on the second - 20% of the
+       price back to the balance (not earnings), the piece gone and reset, the
+       row for sale again at full price; the snail's modal has no SELL; the
+       placement page's SELL (top left) does the same in two taps; a press on
+       a piece finds it (tank_decor_hit: the hold's hit test) */
+    {
+        static uint16_t fb[TANK_W * TANK_H];
+        tank.sd_unlocks |= SD_ITEM_CASTLE | SD_ITEM_SNAIL; tank_castle_place(&tank); tank.sd_balance = 10; int earned = tank.sd_earned;
+        if (progression_sell_value(2) != 30 || progression_sell_value(4) != 48 || progression_sell_value(0) != 8) { printf("FAIL: the sale values\n"); return 1; }
+        if (progression_sell(&tank, 1)) { printf("FAIL: the snail sold\n"); return 1; }
+        render_shop_leave(); render_shop(&tank, fb, TANK_W);
+        if (render_shop_tap(&tank, 100, 98 + 2 * 56 + 20) != SHOP_TAP_KEPT) { printf("FAIL: the castle's row\n"); return 1; }
+        render_shop(&tank, fb, TANK_W);
+        int by = 48 + 244 - 12 - 32 + 16, xmove = 48 + (352 - 200 - 16) / 2 + 50, xsell = xmove + 116;
+        if (render_shop_tap(&tank, xsell, by) != SHOP_TAP_KEPT) { printf("FAIL: the first SELL tap did not arm\n"); return 1; }
+        render_shop(&tank, fb, TANK_W);                                   /* armed: +30 OK? */
+        int r = render_shop_tap(&tank, xsell, by);
+        if (r != SHOP_TAP_SELL + 2) { printf("FAIL: the second SELL tap returned %d\n", r); return 1; }
+        if (!progression_sell(&tank, 2) || tank.sd_balance != 40 || tank.sd_earned != earned || (tank.sd_unlocks & SD_ITEM_CASTLE)) { printf("FAIL: the castle's sale (balance %d)\n", tank.sd_balance); return 1; }
+        if (progression_sd_take_award() != 30) { printf("FAIL: the sale's toast\n"); return 1; }
+        render_shop(&tank, fb, TANK_W); render_shop_tap(&tank, 100, 98 + 2 * 56 + 20); render_shop(&tank, fb, TANK_W);
+        tank.sd_balance = SD_PRICE_CASTLE;
+        if (render_shop_tap(&tank, 48 + 352 / 2, by) != SHOP_TAP_BUY + 2) { printf("FAIL: the sold castle is not for sale again\n"); return 1; }
+        if (!progression_buy(&tank, 2) || tank.sd_balance != 0) { printf("FAIL: buying the castle back at full price\n"); return 1; }
+        /* MOVE still works beside SELL, and an armed SELL stands down on any other tap */
+        render_shop(&tank, fb, TANK_W); render_shop_tap(&tank, 100, 98 + 2 * 56 + 20); render_shop(&tank, fb, TANK_W);
+        render_shop_tap(&tank, xsell, by); render_shop(&tank, fb, TANK_W);
+        if (render_shop_tap(&tank, xmove, by) != SHOP_TAP_MOVE + 2) { printf("FAIL: MOVE beside an armed SELL\n"); return 1; }
+        if (tank.sd_unlocks & SD_ITEM_CASTLE) {} else { printf("FAIL: MOVE sold the castle\n"); return 1; }
+        render_shop_leave();
+        /* the snail's modal: no SELL */
+        render_shop(&tank, fb, TANK_W); render_shop_tap(&tank, 100, 98 + 56 + 20); render_shop(&tank, fb, TANK_W);
+        if (render_shop_tap(&tank, xsell, by) != SHOP_TAP_KEPT || !(tank.sd_unlocks & SD_ITEM_SNAIL)) { printf("FAIL: the snail's modal sold something\n"); return 1; }
+        render_shop_leave();
+        /* the hit test: a press on the castle finds it, one on empty water does
+           not, and the smaller coral wins where it overlaps the castle */
+        tank.sd_unlocks = SD_ITEM_CASTLE | SD_ITEM_SNAIL; tank_decor_set(&tank, 2, 300, DECOR_Z_FRONT);
+        if (tank_decor_hit(&tank, 300, TANK_H - 60) != 2 || tank_decor_hit(&tank, 300, 40) != -1 || tank_decor_hit(&tank, 60, TANK_H - 60) != -1) {
+            printf("FAIL: the decoration hit test (%d %d %d)\n", tank_decor_hit(&tank, 300, TANK_H - 60), tank_decor_hit(&tank, 300, 40), tank_decor_hit(&tank, 60, TANK_H - 60)); return 1; }
+        tank.sd_unlocks |= SD_ITEM_CORAL; tank_coral_place(&tank); tank_decor_set(&tank, 3, 300, DECOR_Z_FRONT);
+        if (tank_decor_hit(&tank, 300, TANK_H - 60) != 3) { printf("FAIL: the coral over the castle\n"); return 1; }
+        tank.sd_unlocks &= ~SD_ITEM_CORAL;
+        /* the page's SELL: arm, then sell; the page closes and the castle is gone */
+        setup_begin_place(&tank, 2);
+        if (setup_hit(SETUP_TOP_BACK_X + 20, SETUP_TOP_BTN_Y + 20) != SETUP_HIT_SELL) { printf("FAIL: the page's SELL hit\n"); return 1; }
+        setup_activate(&tank, SETUP_HIT_SELL);
+        if (!setup_active() || (tank.sd_unlocks & SD_ITEM_CASTLE) == 0) { printf("FAIL: the first page SELL sold\n"); return 1; }
+        render_tank(&tank, fb, TANK_W); render_setup(&tank, fb, TANK_W, 1.0f);   /* armed: +30 OK? */
+        setup_activate(&tank, SETUP_HIT_SELL);
+        if (setup_active() || (tank.sd_unlocks & SD_ITEM_CASTLE) || tank.sd_balance != 30) { printf("FAIL: the page's second SELL (balance %d)\n", tank.sd_balance); return 1; }
+        progression_sd_take_award();
+        printf("selftest-shop: selling back: the castle for 30 (armed, then sold; earnings untouched), bought again at %d, MOVE beside SELL, the snail unsellable, the hold's hit test, the page's SELL\n", SD_PRICE_CASTLE);
     }
     /* the save carries it all */
     {
@@ -2223,6 +2385,8 @@ int main(int argc, char **argv) {
     bool cdown = false;             /* C: the castle prototype */
     bool kdown = false;             /* K: the coral (colours cycle) */
     bool jdown = false;             /* J: the coral's growth, a step */
+    bool idown = false, odown = false;   /* I: the reef cluster (looks cycle); O: its growth */
+    bool held_page = false;              /* this press opened a piece's page by holding on it */
     uint32_t press_ms = 0; int press_x = 0, press_y = 0;
     float press_fx[N_FISH_MAX] = {0}, press_fy[N_FISH_MAX] = {0};
     while (1) {
@@ -2264,7 +2428,12 @@ int main(int argc, char **argv) {
         }
         bool modal = confirm_view || setup_up || settings_view || shop_view;
         if (mpress && !modal) tank_touch_drag(&tank, (float)mx, (float)my);   /* stroke -> wipe/slash */
-        if (mpress && !modal && now_ms - press_ms > 300 && abs(my - press_y) < 30) tank_touch_hold(&tank, (float)mx, (float)my);
+        if (mpress && !modal && !held_page && now_ms - press_ms > 700 && abs(mx - press_x) < 24 && abs(my - press_y) < 24) {   /* tap-and-hold on a piece: its page (2026-09-24) */
+            int it = tank_decor_hit(&tank, (float)press_x, (float)press_y);
+            if (it >= 0) { setup_begin_place(&tank, it); held_page = true; selected_fish = -1; printf("held on the %s: placement page up (MOVE / DEPTH / SELL)\n", SD_ITEMS[it].name); }
+        }
+        if (!mpress) held_page = false;
+        if (mpress && !modal && !held_page && now_ms - press_ms > 300 && abs(my - press_y) < 30) tank_touch_hold(&tank, (float)mx, (float)my);
         if (!mpress && mdown) {
             int dx = mx - press_x, dy = my - press_y;
             if (confirm_view) {                    /* the prompt owns the glass: press AND release on one button */
@@ -2283,6 +2452,10 @@ int main(int argc, char **argv) {
             else if (shop_view) {                       /* the shop: a row's modal, UNLOCK, HOW TO EARN, CLOSE */
                 int r = render_shop_tap(&tank, (float)press_x, (float)press_y);
                 if (r == SHOP_TAP_CLOSE) { shop_view = false; render_shop_leave(); milestones_view = true; }   /* back to the milestones page */
+                else if (r >= SHOP_TAP_SELL) {              /* sold back (the second tap on SELL) */
+                    int item = r - SHOP_TAP_SELL;
+                    if (progression_sell(&tank, item)) { snd(SND_CONFIRM, AUDIO_PITCH_ONE); printf("shop: %s sold back for %d, balance %d\n", SD_ITEMS[item].name, progression_sell_value(item), tank.sd_balance); }
+                }
                 else if (r >= SHOP_TAP_MOVE) {              /* a piece already in the tank: place it again */
                     int item = r - SHOP_TAP_MOVE;
                     shop_view = false; render_shop_leave(); setup_begin_place(&tank, item);
@@ -2367,6 +2540,19 @@ int main(int argc, char **argv) {
             printf("coral growth %.2f (1.0 = the fan, %.2f = the crown)\n", tank.coral_growth, CORAL_FULL);
         }
         jdown = k[SDL_SCANCODE_J];
+        if (k[SDL_SCANCODE_I] && !idown) {         /* the reef cluster (2026-09-24): granted free; again = the next look; past the last takes it away */
+            if (!(tank.sd_unlocks & SD_ITEM_CLUSTER)) { tank.sd_unlocks |= SD_ITEM_CLUSTER; tank_cluster_place(&tank); tank_cluster_set_scheme(&tank, 0); }
+            else if (tank_cluster_scheme(&tank) + 1 < CLUSTER_SCHEME_N) tank_cluster_set_scheme(&tank, tank_cluster_scheme(&tank) + 1);
+            else tank.sd_unlocks &= ~SD_ITEM_CLUSTER;
+            printf("cluster: %s (free; the shop sells it at %d on page 2; O steps its growth)\n",
+                   (tank.sd_unlocks & SD_ITEM_CLUSTER) ? CLUSTER_SCHEMES[tank_cluster_scheme(&tank)].name : "gone", SD_PRICE_CLUSTER);
+        }
+        idown = k[SDL_SCANCODE_I];
+        if (k[SDL_SCANCODE_O] && !odown && (tank.sd_unlocks & SD_ITEM_CLUSTER)) {
+            tank.cluster_growth = tank_cluster_growth(&tank) + 0.25f > CLUSTER_FULL ? CLUSTER_START + 1e-4f : tank_cluster_growth(&tank) + 0.25f;
+            printf("cluster growth %.2f (1.0 = full size, %.2f = every tentacle)\n", tank.cluster_growth, CLUSTER_FULL);
+        }
+        odown = k[SDL_SCANCODE_O];
         if (k[SDL_SCANCODE_D] && !ddown) { progression_sd_grant(&tank, 50); printf("+50 sand dollars (%d)\n", tank.sd_balance); }
         ddown = k[SDL_SCANCODE_D];
         if (k[SDL_SCANCODE_U] && !udown) { ui_visible = !ui_visible; }

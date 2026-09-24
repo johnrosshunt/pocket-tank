@@ -102,6 +102,11 @@ typedef struct {
     uint8_t  coral_z1, pad_coral[3];
     uint32_t coral_rgb;
     float    coral_growth;               /* CORAL_START..1 (0 = a save from before it grew: full) */
+    /* the reef cluster (2026-09-24): its centre x (0 = the default), its
+     * layer + 1, its look, its growth (0 = full). Older saves: no cluster. */
+    float    cluster_x;
+    uint8_t  cluster_z1, cluster_scheme, pad_cluster[2];
+    float    cluster_growth;
 } save_t;
 /* the smallest PTK2 save (pre-upkeep, 2026-08-30): anything shorter is not
  * ours. Every later build wrote sizeof(save_t) of its day - 448, 1112, 1304,
@@ -157,6 +162,7 @@ const sd_item_t SD_ITEMS[SD_ITEM_COUNT] = {
     { SD_ITEM_SNAIL, "SNAIL",       "GRAZES THE GLASS CLEAN,",   "EVEN WHILE THE TANK SLEEPS",  SD_PRICE_SNAIL },
     { SD_ITEM_CASTLE, "CASTLE",     "STONE TOWERS AND AN ARCH",  "THE FISH SWIM THROUGH IT",    SD_PRICE_CASTLE },   /* 2026-09-16 */
     { SD_ITEM_CORAL,  "CORAL",      "A BRANCHING REEF CORAL,",   "GROWS FOR WEEKS, YOUR COLOR", SD_PRICE_CORAL },    /* 2026-09-23 */
+    { SD_ITEM_CLUSTER, "REEF CLUSTER", "A MATURE REEF ON A ROCK,", "FILLS OUT, THEN IT BLOOMS",  SD_PRICE_CLUSTER },  /* 2026-09-24: the dearest; three looks on its page */
 };
 static void sd_award(tank_t *t, int n) {
     if (n <= 0) return;
@@ -189,6 +195,18 @@ static void sd_tick(tank_t *t) {
     hund = (int32_t)(t->trim_px / PX_PER_INCH) / SD_CHORE_EVERY;
     if (hund > t->sd_inches_paid) { sd_award(t, SD_CHORE * (hund - t->sd_inches_paid)); t->sd_inches_paid = hund; }
 }
+int progression_sell_value(int item) { return item < 0 || item >= SD_ITEM_COUNT ? 0 : SD_ITEMS[item].price * SD_SELL_PCT / 100; }
+bool progression_sell(tank_t *t, int item) {
+    if (item < 0 || item >= SD_ITEM_COUNT || !tank_decor_placeable(item)) return false;   /* the snail stays */
+    const sd_item_t *it = &SD_ITEMS[item];
+    if (!(t->sd_unlocks & it->bit)) return false;
+    t->sd_unlocks &= ~it->bit;
+    int back = progression_sell_value(item);
+    t->sd_balance += back; s_sd_pending += back;
+    tank_decor_reset(t, item);
+    mark_dirty(); progression_save(t);
+    return true;
+}
 bool progression_buy(tank_t *t, int item) {
     if (item < 0 || item >= SD_ITEM_COUNT) return false;
     const sd_item_t *it = &SD_ITEMS[item];
@@ -198,6 +216,7 @@ bool progression_buy(tank_t *t, int item) {
     if (it->bit == SD_ITEM_SNAIL) tank_snail_place(t);
     if (it->bit == SD_ITEM_CASTLE) tank_castle_place(t);
     if (it->bit == SD_ITEM_CORAL) tank_coral_place(t);
+    if (it->bit == SD_ITEM_CLUSTER) tank_cluster_place(t);
     progression_save(t);                                   /* a purchase sticks at once */
     return true;
 }
@@ -552,9 +571,12 @@ static bool load_save(tank_t *t, int64_t *saved_unix) {
     }
     if (sv.plant_x > 0) tank_decor_set(t, 0, sv.plant_x, sv.plant_z1 ? sv.plant_z1 - 1 : DECOR_Z_MIDDLE);
     if (sv.castle_x > 0) tank_decor_set(t, 2, sv.castle_x, sv.castle_z1 ? sv.castle_z1 - 1 : DECOR_Z_FRONT);
-    if (sv.coral_x > 0) tank_decor_set(t, 3, sv.coral_x, sv.coral_z1 ? sv.coral_z1 - 1 : DECOR_Z_MIDDLE);
+    if (sv.coral_x > 0) tank_decor_set(t, 3, sv.coral_x, sv.coral_z1 ? sv.coral_z1 - 1 : DECOR_Z_FRONT);   /* (an AMONG save reads as FRONT) */
     if (sv.coral_rgb) tank_coral_set_rgb(t, sv.coral_rgb);
     t->coral_growth = sv.coral_growth > 0 ? sv.coral_growth : 0;   /* 0 = full (tank_coral_growth) */
+    if (sv.cluster_x > 0) tank_decor_set(t, 4, sv.cluster_x, sv.cluster_z1 ? sv.cluster_z1 - 1 : DECOR_Z_FRONT);
+    tank_cluster_set_scheme(t, sv.cluster_scheme);
+    t->cluster_growth = sv.cluster_growth > 0 ? sv.cluster_growth : 0;
     s_sd_prev_feedings = t->player_feedings;         /* meals before this boot are not back-paid */
     s_sd_pending = 0;
     s_arrival_pending = sv.arrival_pending; s_spawn_in = -1;
@@ -744,6 +766,8 @@ void progression_save(tank_t *t) {
     sv.castle_x = t->castle_x > 0 ? t->castle_x : 0; sv.castle_z1 = (uint8_t)(t->castle_z + 1);
     sv.coral_x = t->coral_x > 0 ? t->coral_x : 0; sv.coral_z1 = (uint8_t)(t->coral_z + 1); sv.coral_rgb = t->coral_rgb;
     sv.coral_growth = t->coral_growth;
+    sv.cluster_x = t->cluster_x > 0 ? t->cluster_x : 0; sv.cluster_z1 = (uint8_t)(t->cluster_z + 1); sv.cluster_scheme = t->cluster_scheme;
+    sv.cluster_growth = t->cluster_growth;
     sv.setup_pending = s_setup_pending;
     sv.newborn_p1 = (uint8_t)(s_newborn >= 0 && s_newborn < t->n_fish ? s_newborn + 1 : 0);
     sv.bubble_x = t->bubble_x;

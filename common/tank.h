@@ -306,6 +306,16 @@ typedef struct tank {
                                     * "something at a much different pace showing progression"). Saved. */
     float    coral_acc;            /* awake seconds not yet applied: a frame's 1/60 s over 30 days is
                                     * under float precision next to the growth, so it lands by the minute */
+    /* the reef cluster (2026-09-24, Strato's coral-cluster.png): a mature
+     * cluster on a rock - the branching coral, purple tube sponges, a brain
+     * coral, weed - bought big and still growing: its size first, then more
+     * and more swaying tentacles. Its centre x (<= 0 = the default), depth,
+     * colour SCHEME (CLUSTER_SCHEME_N preset looks) and growth. All saved. */
+    float    cluster_x;
+    uint8_t  cluster_z;
+    uint8_t  cluster_scheme;
+    float    cluster_growth;       /* CLUSTER_START..CLUSTER_FULL; 0..1 = it fills out, 1..FULL = the tentacles come */
+    float    cluster_acc;          /* awake seconds pooled, as coral_acc */
     /* keeper habits the tank remembers (persisted by progression.c) */
     float    feed_spot_x;          /* where the keeper usually feeds (EMA); <0 = unknown */
     int      player_feedings;      /* MEALS: feedings the fish ate from (2026-09-14, Strato: a tap
@@ -519,7 +529,7 @@ void  tank_set_bubble_x(tank_t *t, float x);
  * The items are bits in tank_t.sd_unlocks; progression.c sells them
  * (progression_buy) and tank.c gives them their place. A bought thing is in
  * the tank for good. */
-enum { SD_ITEM_PLANT = 1u << 0, SD_ITEM_SNAIL = 1u << 1, SD_ITEM_CASTLE = 1u << 2, SD_ITEM_CORAL = 1u << 3, SD_ITEM_COUNT = 4 };
+enum { SD_ITEM_PLANT = 1u << 0, SD_ITEM_SNAIL = 1u << 1, SD_ITEM_CASTLE = 1u << 2, SD_ITEM_CORAL = 1u << 3, SD_ITEM_CLUSTER = 1u << 4, SD_ITEM_COUNT = 5 };
 /* per-fish paid bits (sd_paid_fish) */
 enum { SD_PAID_JUV = 1u << 0, SD_PAID_ADULT = 1u << 1, SD_PAID_ELDER = 1u << 2, SD_PAID_TRUST = 1u << 3 };
 #define PX_PER_INCH 24.0f          /* the tank reads as ~15 in tall; a fish ~1.7 in */
@@ -533,6 +543,7 @@ void  tank_plant_place(tank_t *t);
 void  tank_snail_place(tank_t *t);
 void  tank_castle_place(tank_t *t);
 void  tank_coral_place(tank_t *t);
+void  tank_cluster_place(tank_t *t);
 /* placing the decor (2026-09-16, Strato: a bought piece "should allow the
  * player to place the piece wherever they like", with a depth choice): a
  * placeable item has a centre x along the floor - clamped inside the
@@ -561,6 +572,12 @@ enum { DECOR_Z_BACK = 0, DECOR_Z_MIDDLE = 1, DECOR_Z_FRONT = 2, DECOR_Z_N = 3 };
  * pick saved as RGB so a palette change never recolours a tank. */
 #define CORAL_HALF_W    30
 #define CORAL_X_DEFAULT 150.0f
+/* both corals stand BEHIND or IN FRONT of the grass (no AMONG, like the
+ * castle) and are anchored: their base sits DECOR_SINK px down into the
+ * pebbles and a low mound of floor stones is drawn round it (render.c
+ * draw_floor_mound) - Strato, 2026-09-24: "it actually looks like they are
+ * hovering / pasted onto the [floor]" */
+#define DECOR_SINK      4
 #define CORAL_N         8
 #define CORAL_START     0.45f              /* a bought coral is young but ESTABLISHED: the trunk and the two
                                             * low branches (Strato, 2026-09-23: a nub "is not satisfying ...
@@ -575,6 +592,26 @@ enum { DECOR_Z_BACK = 0, DECOR_Z_MIDDLE = 1, DECOR_Z_FRONT = 2, DECOR_Z_N = 3 };
                                             * day. The fan tops out ~76 px up the glass, a quarter of the
                                             * grass's ceilings - a modest thing, never a wall. */
 float    tank_coral_growth(const tank_t *t);      /* CORAL_START..CORAL_FULL (CORAL_FULL when unset) */
+/* the reef cluster (2026-09-24): item 4, the dearest thing in the shop. ~144
+ * x 120 px on the floor, all three depths, AMONG by default. It arrives
+ * MATURE (Strato: "the initial stage needs to look somewhat impressive and
+ * large") at CLUSTER_SIZE_MIN of its full size and fills out to full over
+ * the first CLUSTER_GROW_S, then from 1 to CLUSTER_FULL more and more
+ * tentacles sway from the tube mouths, the coral's tips and the brain. Three
+ * preset LOOKS (CLUSTER_SCHEMES: the coral / the tubes / the brain each), the
+ * placement page's row of three tiles picks one. */
+#define CLUSTER_HALF_W    72
+#define CLUSTER_X_DEFAULT 330.0f
+#define CLUSTER_START     0.0f
+#define CLUSTER_FULL      2.0f
+#define CLUSTER_SIZE_MIN  0.85f            /* its size on the day it is bought, of the full */
+#define CLUSTER_GROW_S    (14.0f * 86400.0f) /* two weeks to full size, two more for every tentacle */
+#define CLUSTER_SCHEME_N  3
+typedef struct { const char *name; uint32_t coral, tube, brain; } cluster_scheme_t;
+extern const cluster_scheme_t CLUSTER_SCHEMES[CLUSTER_SCHEME_N];
+float    tank_cluster_growth(const tank_t *t);    /* CLUSTER_START..CLUSTER_FULL (CLUSTER_FULL when unset) */
+int      tank_cluster_scheme(const tank_t *t);    /* 0..CLUSTER_SCHEME_N-1 */
+void     tank_cluster_set_scheme(tank_t *t, int i);
 extern const uint32_t CORAL_PAL[CORAL_N];
 uint32_t tank_coral_rgb(const tank_t *t);          /* the colour, the default when unset */
 void     tank_coral_set_rgb(tank_t *t, uint32_t rgb);
@@ -586,6 +623,12 @@ void  tank_decor_set(tank_t *t, int item, float x, int z);
 float tank_decor_x(const tank_t *t, int item);   /* the centre, default when unplaced */
 int   tank_decor_z(const tank_t *t, int item);
 float tank_decor_half_w(int item);         /* half the footprint, for the page's clamp / highlight */
+/* the owned, placeable piece under (x, y) - its footprint box on the floor -
+ * or -1 (2026-09-24: a tap-and-hold on a piece opens its page); the smaller
+ * pieces win a tie. tank_decor_reset puts a SOLD piece back to its factory
+ * state so a later purchase starts fresh. */
+int   tank_decor_hit(const tank_t *t, float x, float y);
+void  tank_decor_reset(tank_t *t, int item);
 /* the snail has two poses (Strato's sprites, 2026-09-15): UPRIGHT, walking
  * the tank floor (nothing to graze: it comes down and ambles along the
  * bottom, turning at the ends), and flat ON THE GLASS (crawling to film and

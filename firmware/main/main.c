@@ -388,8 +388,12 @@ static void tank_task(void *arg) {
           else if (w == SET_TAP_VOLUME) { audio_port_set_volume(v); if (v) audio_port_play(SND_CONFIRM, AUDIO_PITCH_ONE); }
           else if (w == SET_TAP_LIGHT) ESP_LOGI(TAG, "settings: lights out %s", v ? "AUTO (the idle rule)" : "MANUAL (double-tap the glass)");
           else if (w == SET_TAP_IDLE) ESP_LOGI(TAG, "settings: lights out after %d s still", v); }
-        { int r = touch_port_take_shop();                               /* the shop's UNLOCK / MOVE */
-          if (r >= SHOP_TAP_MOVE) {                                     /* a piece already in the tank: place it again */
+        { int r = touch_port_take_shop();                               /* the shop's UNLOCK / MOVE / SELL */
+          if (r >= SHOP_TAP_SELL) {                                     /* sold back: the refund, the piece gone, the row for sale again */
+              int item = r - SHOP_TAP_SELL;
+              if (progression_sell(&tank, item)) { audio_port_play(SND_CONFIRM, AUDIO_PITCH_ONE);
+                  ESP_LOGI(TAG, "shop: %s sold back for %d, balance %d", SD_ITEMS[item].name, progression_sell_value(item), (int)tank.sd_balance); }
+          } else if (r >= SHOP_TAP_MOVE) {                              /* a piece already in the tank: place it again */
               int item = r - SHOP_TAP_MOVE;
               touch_port_show_shop(false); setup_begin_place(&tank, item);
               ESP_LOGI(TAG, "shop: MOVE %s - placement page up (drag, DEPTH, DONE)", SD_ITEMS[item].name);
@@ -543,6 +547,8 @@ void app_main(void) {
     if (vig) render_set_vignette_cache(vig);
     /* dirty mask (20 KB): internal SRAM if it fits - it is cleared and read
        every frame, and in PSRAM that was ~1.5 ms; PSRAM fallback */
+    { void *ds = heap_caps_malloc(render_decor_scratch_size(), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);   /* the coral / cluster tables: PSRAM, never .bss */
+      if (ds) render_set_decor_scratch(ds); else ESP_LOGW(TAG, "decor scratch: no PSRAM (%u B) - falling back to internal", (unsigned)render_decor_scratch_size()); }
     uint32_t *dirty = heap_caps_malloc(RENDER_DIRTY_WORDS * 4, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (!dirty) dirty = heap_caps_malloc(RENDER_DIRTY_WORDS * 4, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (dirty) render_set_dirty_mask(dirty); else ESP_LOGW(TAG, "no dirty mask RAM: full redraw per frame");

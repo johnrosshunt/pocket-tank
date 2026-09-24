@@ -177,6 +177,7 @@ const char *const *progression_fry_tip(int kind);
 #define SD_PRICE_SNAIL 80
 #define SD_PRICE_CASTLE 150
 #define SD_PRICE_CORAL 100
+#define SD_PRICE_CLUSTER 240
 typedef struct {
     uint32_t    bit;               /* SD_ITEM_* */
     const char *name;              /* <= 12 chars, the pixel font */
@@ -188,6 +189,13 @@ extern const sd_item_t SD_ITEMS[SD_ITEM_COUNT];
  * true = unlocked, placed in the tank (tank_plant_place / tank_snail_place)
  * and saved at once */
 bool progression_buy(tank_t *t, int item);
+/* the sale back (2026-09-24, Strato): a placeable piece sells for SD_SELL_PCT
+ * of its price (the snail is a permanent resident), goes back to the shop at
+ * full price and to its factory state; false = not owned or not for sale.
+ * The refund is balance, not earnings; the toast shows it. */
+#define SD_SELL_PCT 20
+int  progression_sell_value(int item);
+bool progression_sell(tank_t *t, int item);
 /* dollars awarded since the last call (the toast over the live tank) */
 int  progression_sd_take_award(void);
 /* director / tests: dollars from nowhere (negative takes them away) */

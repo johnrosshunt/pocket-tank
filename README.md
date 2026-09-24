@@ -246,8 +246,9 @@ of the charm.
 drawn from a little skeleton of rounded branches on a chunky pixel grid:
 a dark rim on the shaded side, a lit edge toward the light, pale tips,
 and a speckled body in whatever colour you give it. Its placement page
-has the drag, a DEPTH bar of all three choices, and a COLOR row of eight
-swatches; the coral on the floor wears the pick as you tap, and the
+has the drag, a DEPTH bar of two choices (BEHIND or IN FRONT, like the
+castle's), and a COLOR row of eight swatches; the coral on the floor wears
+the pick as you tap, and the
 shop's MOVE button brings the page back whenever you want a change. It
 also grows, and slowly, which nothing else in the tank does: you buy a
 young but established fan, the trunk and its two low branches, and over
@@ -255,6 +256,33 @@ about seventeen days, awake or asleep, the rest of the branches reach out
 one by one until the fan is complete. It tops out about a quarter of the
 way up the glass and stays there. Then, over the following week, a crown
 of nine thin tentacles sprouts from the tip and sways on the tank clock.
+It is anchored: its base sits down in the pebbles and a low hump of the
+floor's own stones is heaped round it, so the trunk grows out of the floor
+instead of standing on it.
+
+**The reef cluster.** The fifth thing in the shop, and the dearest (240),
+lives on the shop's second page: the header's arrows flip to it. It is a
+whole mature reef on a pile of stones, drawn the same procedural way from
+Strato's cluster art: a branching coral to the left, four tube sponges
+with dark mouths, a lobed brain coral in front, green weed between the
+stones, about twice the coral's footprint. You buy it big, at 85% of its
+full size, because a keeper buying a coral wants something to look at on
+day one; over two weeks it fills out to full size, and over the two weeks
+after that it blooms, up to forty-eight thin tentacles appearing one at a
+time round the tube mouths, the coral's tips and the brain's top, every
+one swaying. Its placement page has the drag, the two depths, and a LOOK
+row of three tiles instead of a colour: REEF is the art's orange, purple
+and cyan; LAGOON is pink, blue and lime; DUSK is magenta, teal and gold.
+It sits in a hump of stones like the coral.
+
+**Selling back, and the short way to a piece.** Tap and hold a still
+finger on any decoration in the tank and its placement page opens right
+there, with MOVE, DEPTH and, in the top-left corner, SELL. The same SELL
+sits next to MOVE in the shop's modal for anything you own. A sale needs
+two taps: the first arms the button and shows the refund, the second
+sells. You get 20% of the price back, the piece leaves the tank, and it is
+in the shop again at full price. The snail is not for sale; it is a
+permanent resident.
 
 ![The shop](docs/media/sim-shop.png)
 ![Unlocking the snail](docs/media/sim-shop-modal.png)
@@ -269,6 +297,12 @@ of nine thin tentacles sprouts from the tip and sways on the tank clock.
 ![The grown coral with its crown of tentacles](docs/media/sim-coral.png)
 ![A violet coral IN FRONT of everything](docs/media/sim-coral-front.png)
 ![Placing the coral: the COLOR row above the water](docs/media/sim-place-coral.png)
+![The shop's second page](docs/media/sim-shop2.png)
+![The reef cluster on the day it is bought](docs/media/sim-cluster-young.png)
+![The reef cluster in full bloom](docs/media/sim-cluster.png)
+![The LAGOON look, IN FRONT](docs/media/sim-cluster-front.png)
+![Placing the reef cluster: the LOOK row](docs/media/sim-place-cluster.png)
+![SELL armed in the castle's modal](docs/media/sim-shop-sell.png)
 
 **The light.** Two quick taps on the glass turn the tank light off and on;
 in the dark the fish rest and the palette dims. The settings page has a
