@@ -1,0 +1,26 @@
+# pocket-tank preflight 2026-09-24_1104 on /dev/cu.usbmodem101
+I (1070316) batlog: 4 samples (h:mm since the first | SoC | VBAT | bright | state | mA since previous)
+I (1070317) batlog:     0:00 |  90% | 4023 mV |   0 | asleep | bed
+I (1070321) batlog:    11:35 |  86% | 4113 mV | 153 | awake  | boot      0.7 mA
+I (1070328) batlog:    11:40 |  89% | 4158 mV | 153 | awake  |         -72.0 mA
+I (1070335) batlog:    11:45 |  93% | 4196 mV | 153 | awake  |         -96.0 mA
+I (1070342) batlog:   awake:  0.2 h, -14 mAh -> -84 mA average
+I (1070347) batlog:   asleep: 11.6 h, 8.0 mAh -> 0.69 mA average
+I (1070353) batlog:   (SoC is 1% = 2 mAh; short awake windows are coarse, a night is not)
+I (1074330) director: 0 lori   elder age 38.8h size 1.45 hunger 0.6 energy 0.7 stress 0.0 curiosity 6.4 trust 10.0 ms f3f  visit_bubbles at 338,119
+I (1074333) director: 1 mira   elder age 38.8h size 1.57 hunger 3.8 energy 0.5 stress 0.0 curiosity 2.0 trust 10.0 ms f3f  follow_friend at 236,89
+I (1074346) director: 2 bolt   elder age 35.3h size 1.36 hunger 3.6 energy 0.5 stress 0.0 curiosity 5.6 trust 8.0 ms f3f  follow_friend at 286,101
+I (1074359) director: 3 sol    adult age 12.9h size 1.28 hunger 3.8 energy 0.9 stress 0.0 curiosity 9.9 trust 7.1 ms 73f  seek_food at 155,120
+I (1074371) director: 4 kelp   fry   age 0.3h size 0.48 hunger 4.3 energy 0.0 stress 0.0 curiosity 0.0 trust 4.0 ms 133  follow_friend at 134,224
+I (1074384) director: pellets 1 | trickle on | ravenous 0 | day idle 95s | veg 0.41 0.38 0.06 | algae cells 1/644 | courting no | arrival -
+I (1074396) director: sand dollars 908 (earned 1278) | shop: plant snail | colonies 399 | 3223.3 in trimmed
+I (1074406) director: snail at 347,313 heading -78 deg | after cell 25 at 408,8 (film 90) | 1 cells on the glass | 274 grazed so far
+I (1074418) director: bed 0 fronds (x from 19, pitch 12): 0.48 0.47 0.45 0.44 0.43 0.43 0.42 0.41 0.40 0.39 0.37 0.37 0.37 0.36 0.36
+I (1074429) director: bed 1 fronds (x from 376, pitch 12): 0.09 0.11 0.53 0.57 0.59
+I (1074436) director: bed 2 fronds (x from 278, pitch 12): 0.07 0.07 0.06 0.04 0.04 0.04 0.08 0.08
+I (1074445) director: bed 3 leaves (x from 113, pitch 14): 0.40 0.39 0.38 0.37
+I (1074452) director: plant placed: centre x 134 (the keeper's), depth IN FRONT of the fish
+I (1074460) director: castle placed: centre x 253 (the keeper's), BEHIND the grass
+I (1074467) director: coral placed: centre x 62 (the keeper's), IN FRONT, colour ff7a1e, growth 0.47 of 1.25 (growing)
+I (1074478) director: nursery bed 0 (a bed >= 0.12) | parked real tank: no (this IS the real tank)
+I (1074486) director: battery 100% on battery, VBAT 4127 mV | brightness 153/255 (level 60%)

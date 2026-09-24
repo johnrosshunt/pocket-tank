@@ -2131,8 +2131,8 @@ static int ms_open(const tank_t *t, int row, bool tank_row, bool fry_row, int k,
         if (k < 0) {                                 /* the name: the tally, and when it comes */
             int met = 0; for (int i = 0; i < nreq; i++) met += req[i].met;
             snprintf(g_ms_title, sizeof g_ms_title, "NEW FRY");
-            if (staged) { snprintf(g_ms_caption, sizeof g_ms_caption, "EVERY STEP IS DONE. A FRY");
-                          snprintf(g_ms_caption2, sizeof g_ms_caption2, "COMES AT THE NEXT LIGHT-ON");
+            if (staged) { snprintf(g_ms_caption, sizeof g_ms_caption, "EVERY STEP IS DONE. A FRY");   /* the spawning, 2026-09-24 */
+                          snprintf(g_ms_caption2, sizeof g_ms_caption2, "WILL BE BORN IN THE GRASS");
                           snprintf(g_ms_sub, sizeof g_ms_sub, "ON ITS WAY"); }
             else { snprintf(g_ms_caption, sizeof g_ms_caption, "WHEN ALL NEEDS ARE MET, A");     /* Strato's words, 2026-09-14 */
                    snprintf(g_ms_caption2, sizeof g_ms_caption2, "NEW FRY IS READY TO BE BORN");

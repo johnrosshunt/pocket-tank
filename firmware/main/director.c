@@ -123,7 +123,7 @@ static void show_state(const tank_t *t) {
              t->idle_s,
              t->veg_growth[0], t->veg_growth[1], t->veg_growth[2], cells, ALGAE_CELLS,
              t->courting ? t->fish[t->court_a].name : "no", t->courting ? "+" : "",
-             t->courting ? t->fish[t->court_b].name : "", t->court_active > 0 ? " (circling)" : "",
+             t->courting ? t->fish[t->court_b].name : "", t->spawning ? " (SPAWNING)" : t->court_active > 0 ? " (circling)" : "",
              progression_arrival_pending() ? "staged" : "-");
     ESP_LOGI(TAG, "sand dollars %d (earned %d) | shop:%s%s%s | colonies %d | %.1f in trimmed",
              (int)t->sd_balance, (int)t->sd_earned, t->sd_unlocks & SD_ITEM_PLANT ? " plant" : "", t->sd_unlocks & SD_ITEM_SNAIL ? " snail" : "",
@@ -176,7 +176,7 @@ static void help(void) {
     ESP_LOGI(TAG, "pmic (AXP2101 dump) | pmic on|off <aldo1|aldo2..4|bldo1|bldo2|cpusldo|dcdc2..5|dldo1|dldo2> (experiments; boot trims the unused ones) | pmic trim");
     ESP_LOGI(TAG, "bright <0-255> (panel now; not saved) | level 100|60|30 (the keeper's setting, saved)");
     ESP_LOGI(TAG, "batlog [clear] (the tank's own battery log: SoC/VBAT every 5 min awake, 30 min asleep, mA derived - read it after a night on battery) | codec (ES8311 registers) | deepsleep [N] (N: 5 s grace then deep sleep with an N s timer wake - one batlog window per N, BOOT wakes it; no N: the keeper's sleep, grace then power-off) | poweroff (save + PMIC cut now) | keytime [N] (N s of timing every PWR press - is a tap under the PMIC's 128 ms power-on hold?)");
-    ESP_LOGI(TAG, "overgrown (grass to the ceiling + fouled glass; fish stress climbs) | court (pair circles the reef now and every ~minute; fry at the next light-on) | arrive (the fry, now)");
+    ESP_LOGI(TAG, "overgrown (grass to the ceiling + fouled glass; fish stress climbs) | court (stage the fry: in ~10-20 s the pair courts in the grass, then it is born) | arrive (the fry, now)");
 }
 
 static void run(tank_t *t, char *line) {
@@ -412,8 +412,8 @@ static void run(tank_t *t, char *line) {
         make_room(t);
         if (tank_nursery_bed(t) < 0) { tank_veg_set(t, 0, 0.3f); ESP_LOGI(TAG, "no nursery: reef bed set to 0.30"); }
         progression_stage_arrival(t);
-        t->court_cool = 0;                     /* first episode on the next frame (lights on) */
-        ESP_LOGI(TAG, "arrival staged: the two most-trusting grown fish circle the reef now and every 40-90 s; the fry appears at the next light-on (light twice) or `arrive`");
+        ESP_LOGI(TAG, "arrival staged: in %.0f-%.0f s the parents swim down into the nursery grass and court; the fry is born after %.0f s of circling there together (a page up pauses it; `arrive` = now)",
+                 SPAWN_WAIT_MIN_S, SPAWN_WAIT_MAX_S, SPAWN_DANCE_S);
     } else if (!strcmp(c, "arrive")) {
         if (!stage_guard(t)) return;
         make_room(t);

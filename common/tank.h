@@ -322,6 +322,15 @@ typedef struct tank {
     int8_t   court_a, court_b;     /* the parents-to-be (-1 = fewer than 2 grown fish) */
     float    court_cool;           /* seconds until the next courtship episode */
     float    court_active;         /* seconds left of the current episode */
+    /* the spawning (2026-09-24): a staged arrival is born in front of the
+     * keeper, not at a light-on. progression.c waits a few awake seconds,
+     * then sets `spawning`: the courting pair dives into the nursery grass
+     * and circles there with no episode clock; tank.c counts `spawn_danced`,
+     * the seconds both have spent circling in the fronds, and progression.c
+     * delivers the fry at SPAWN_DANCE_S. Not saved (a staged arrival is; a
+     * wake delivers it at once). */
+    bool     spawning;
+    float    spawn_danced;
     bool     ravenous;             /* starving tank: with empty water the fish
                                     * beg at the surface; the moment pellets
                                     * land they DASH for them (feeding frenzy).
@@ -332,7 +341,11 @@ typedef struct tank {
                                     * light stays on however still the device is
                                     * (2026-09-13, Strato: the tank went dark mid-name).
                                     * Not saved; a light override still wins. */
-    int8_t   stage_fish;           /* setup: this fish is being named / coloured - it swims
+    bool     ui_cover;             /* platform: a page covers the tank (setup, a prompt,
+                                    * milestones, settings, the shop) - a fry's spawning
+                                    * waits, so the keeper never misses it (2026-09-24).
+                                    * Set every frame; not saved. */
+    int8_t   stage_fish;          /* setup: this fish is being named / coloured - it swims
                                     * a slow loop at (stage_x, stage_y), the clear spot the
                                     * page leaves for it, so it is never behind the UI
                                     * (2026-09-13). -1 = nobody. Not saved. */
@@ -465,6 +478,8 @@ void  tank_veg_set(tank_t *t, int b, float g);
 /* the tallest bed at VEG_NURSERY or better, -1 if none (progression gates
  * courtship and arrivals on it; tank.c stages the courtship there) */
 int   tank_nursery_bed(const tank_t *t);
+/* a flirt of n bubbles rising from where the pair courts (the nursery) */
+void  tank_court_puff(tank_t *t, int n);
 /* the share of the glass wearing film, 0..1 (cells with any algae over all
  * cells - what the keeper sees covered, not how thick). > ALGAE_DIRTY = a
  * dirty tank: the fry checklist's GLASS gate (progression.c) */

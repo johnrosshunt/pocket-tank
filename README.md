@@ -132,9 +132,12 @@ the night is the morning's surprise.
 **Arrivals.** Take good care of the pair and the tank earns more fish, up to
 five, one at a time. Each arrival has conditions (trust, feedings, a fish
 grown up, a hold-approach) and the tank *tells* you when it's close: the two
-most trusting adults dive into the sea grass and circle low through it. Soon
-after, at the next light-on, there's a fry in that grass. A bed has to be
-tall enough to hide in before courtship starts or a fry can be born.
+most trusting adults dive into the sea grass and circle low through it.
+Once every condition is met, the pair goes down into the grass within half
+a minute and courts, and a few seconds into the dance there's a fry between
+them, light on or off. Put the tank to sleep before that and the fry is
+there when it wakes. A bed has to be tall enough to hide in before courtship
+starts or a fry can be born.
 
 **Trust.** Hold a finger on the glass for three seconds and the fish that
 trust you come over from anywhere in the tank, the most trusting first and
@@ -181,7 +184,7 @@ conceived in a dirty tank (film on more than 15% of the pane closes the
 gate, and its bar fills as you wipe). Tap a badge for the plain words and where it stands ("ALL FISH
 MUST HAVE TRUST OF AT LEAST 6 OUT OF 10 / LOWEST NOW 4.1"), and HOW? for a
 tip on how to get there. Tap the name for the tally. When every step is
-done, the fry is born at the next light-on.
+done, the parents court in the grass and the fry is born within the minute.
 
 ![The milestones page](docs/media/sim-milestones.png)
 ![A badge's panel, with its arrows](docs/media/sim-milestone-modal.png)
@@ -316,7 +319,7 @@ is now, with what it inherited: whose body, whose markings, and how bold
 and sociable it is on bars marked with each parent's own value. Its
 markings, like any fry's, come in as it grows. The welcome is saved with
 the tank until you finish it, so a fry born while you were away is waiting
-for you at the next light.
+for you when you come back.
 
 ![A new fry: the announcement](docs/media/sim-birth-born.png)
 ![Naming the new fry](docs/media/sim-birth-name_new.png)

@@ -132,6 +132,7 @@ static bool  s_ravenous;             /* begging/frenzy active until everyone's f
 static float s_ravenous_t;           /* seconds spent begging (dash time excluded) */
 static int   s_rav_feedings0;        /* player_feedings when the episode began (tank.ravenous_fed) */
 static bool  s_arrival_pending;
+static float s_spawn_in = -1;        /* seconds until the spawning starts (-1 = not counting) */
 static bool  s_prev_night;
 static bool  s_booted;
 static bool  s_setup_pending;        /* the first-run flow still owed (setup.c) */
@@ -235,17 +236,29 @@ static void apply_growth(fish_t *f) {
 
 static const uint32_t POP_TMS[N_FISH_MAX + 1] = { 0, 0, TMS_PAIR, TMS_TRIO, TMS_QUARTET, TMS_QUINTET, TMS_SEXTET };
 
-/* the arrival itself: a fry by the reef, traits inherited from the two most
- * trusting adults; the stage clock starts from zero */
-static void do_arrival(tank_t *t) {
+/* the parents: the two most trusting grown fish - or, with fewer than two
+ * grown (at two fish no stage is gated), the most trusting of the rest fill
+ * in, so there is always a pair to court (2026-09-24: the spawning needs
+ * two fish in the grass; tank_add_fish already fell back to fish 0 and 1) */
+static float parent_rank(const fish_t *f) { return (f->stage >= STAGE_ADULT ? 100.0f : 0.0f) + f->trust; }
+static void pick_parents(const tank_t *t, int *pa, int *pb) {
     int a = -1, b = -1;
     for (int i = 0; i < t->n_fish; i++) {
-        if (t->fish[i].stage < STAGE_ADULT) continue;
-        if (a < 0 || t->fish[i].trust > t->fish[a].trust) { b = a; a = i; }
-        else if (b < 0 || t->fish[i].trust > t->fish[b].trust) b = i;
+        float r = parent_rank(&t->fish[i]);
+        if (a < 0 || r > parent_rank(&t->fish[a])) { b = a; a = i; }
+        else if (b < 0 || r > parent_rank(&t->fish[b])) b = i;
     }
+    *pa = a; *pb = b;
+}
+
+/* the arrival itself: a fry in the nursery grass, traits inherited from the
+ * parents; the stage clock starts from zero */
+static void do_arrival(tank_t *t) {
+    int a, b;
+    pick_parents(t, &a, &b);
     int slot = tank_add_fish(t, a, b);
     s_arrival_pending = false;
+    s_spawn_in = -1; t->spawning = false; t->spawn_danced = 0;
     if (slot < 0) return;
     int nb = tank_nursery_bed(t);            /* born in the grass it was courted in */
     if (nb >= 0) {
@@ -438,6 +451,7 @@ static bool arrival_earned(const tank_t *t) {
 }
 
 void progression_force_arrival(tank_t *t) { s_arrival_pending = true; do_arrival(t); }
+void progression_woke(tank_t *t) { if (s_arrival_pending) do_arrival(t); }
 void progression_stage_arrival(tank_t *t) { (void)t; if (!s_arrival_pending) { s_arrival_pending = true; mark_dirty(); } }
 
 void progression_fresh(tank_t *t) {
@@ -446,7 +460,7 @@ void progression_fresh(tank_t *t) {
     for (int i = 0; i < N_FISH_MAX; i++) s_age[i] = 0;
     t->tank_ms_bits = TMS_PAIR;
     for (int i = 0; i < t->n_fish; i++) { t->fish[i].ms_bits = MS_ARRIVED; apply_growth(&t->fish[i]); }
-    s_arrival_pending = false; s_prev_night = t->night;
+    s_arrival_pending = false; s_spawn_in = -1; s_prev_night = t->night;
     s_ravenous = false; s_ravenous_t = 0;
     s_setup_pending = true;          /* a new tank: welcome, names, colours */
     s_newborn = -1;
@@ -543,7 +557,7 @@ static bool load_save(tank_t *t, int64_t *saved_unix) {
     t->coral_growth = sv.coral_growth > 0 ? sv.coral_growth : 0;   /* 0 = full (tank_coral_growth) */
     s_sd_prev_feedings = t->player_feedings;         /* meals before this boot are not back-paid */
     s_sd_pending = 0;
-    s_arrival_pending = sv.arrival_pending;
+    s_arrival_pending = sv.arrival_pending; s_spawn_in = -1;
     s_prev_night = t->night;
     return true;
 }
@@ -589,7 +603,7 @@ float progression_wake(tank_t *t, int64_t now_unix) {
         progression_slept(t, (float)span);
         slept = span / 3600.0f;
     }
-    if (s_arrival_pending && !t->night && tank_nursery_bed(t) >= 0) do_arrival(t);
+    progression_woke(t);                     /* a fry staged before the sleep: born at the wake */
     return slept;
 }
 
@@ -660,8 +674,8 @@ void progression_tick(tank_t *t, float dt) {
     t->ravenous_fed = s_ravenous && t->player_feedings != s_rav_feedings0;
 
     /* the courtship tell: one condition shy of an arrival (or one staged),
-     * the two most-trusting grown fish pair up - tank.c stages the episodes.
-     * The pair is chosen exactly the way do_arrival picks parents. */
+     * the parents-to-be pair up - tank.c stages the episodes. The pair is
+     * the one do_arrival will name (pick_parents). */
     t->courting = false; t->court_a = t->court_b = -1;
     if (t->n_fish < POP_CAP && t->n_fish < N_FISH_MAX && tank_nursery_bed(t) >= 0) {
         /* ... and only with a nursery: a bed tall enough to hide in. Shave
@@ -669,25 +683,34 @@ void progression_tick(tank_t *t, float dt) {
         int met, total;
         arrival_conditions(t, &met, &total);
         if (s_arrival_pending || met >= total - 1) {
-            int a = -1, b = -1;
-            for (int i = 0; i < t->n_fish; i++) {
-                if (t->fish[i].stage < STAGE_ADULT) continue;
-                if (a < 0 || t->fish[i].trust > t->fish[a].trust) { b = a; a = i; }
-                else if (b < 0 || t->fish[i].trust > t->fish[b].trust) b = i;
-            }
+            int a, b;
+            pick_parents(t, &a, &b);
             if (a >= 0 && b >= 0) { t->courting = true; t->court_a = (int8_t)a; t->court_b = (int8_t)b; }
         }
     }
 
-    /* light-on: greet, and show a staged arrival */
+    /* light-on: greet (the light no longer brings the fry) */
     bool light_on_edge = s_prev_night && !t->night;
     if (s_prev_night != t->night) mark_dirty();
     s_prev_night = t->night;
-    if (light_on_edge) {
-        t->greet_timer = 6.0f;
-        if (s_arrival_pending && tank_nursery_bed(t) >= 0) do_arrival(t);   /* the fry waits for grass */
-    }
+    if (light_on_edge) t->greet_timer = 6.0f;
     if (!s_arrival_pending && arrival_earned(t)) { s_arrival_pending = true; mark_dirty(); }
+
+    /* the spawning (progression.h): a staged fry is born on its own, a
+     * little after the last gate closed, while the keeper can see it. The
+     * wait counts real awake seconds (not progression_time_scale) and pauses
+     * under a page; a dance cut short (a page, the grass shaved) starts
+     * over with a fresh wait. */
+    if (!s_arrival_pending || !t->courting || t->ui_cover) {
+        if (t->spawning) s_spawn_in = -1;
+        t->spawning = false; t->spawn_danced = 0;
+    } else if (!t->spawning) {
+        if (s_spawn_in < 0) s_spawn_in = tank_randf(t, SPAWN_WAIT_MIN_S, SPAWN_WAIT_MAX_S);
+        if ((s_spawn_in -= dt) <= 0) { s_spawn_in = -1; t->spawning = true; t->spawn_danced = 0; }
+    } else if (t->spawn_danced >= SPAWN_DANCE_S) {
+        do_arrival(t);                       /* between them, in the fronds */
+        tank_court_puff(t, 3);
+    }
 
     /* saves: coalesced event saves + heartbeat */
     s_since_save += dt; if (s_dirty) s_dirty_since += dt;

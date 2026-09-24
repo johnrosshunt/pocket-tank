@@ -207,6 +207,7 @@ static void enter_sleep_for(int wake_after_s) {
         while (!gpio_get_level(BTN_SLEEP)) vTaskDelay(pdMS_TO_TICKS(10));   /* a BOOT wake press, still down */
         float napped = (esp_timer_get_time() - t0) / 1e6f;
         tank_tick_sleep(&tank, napped);         /* the nap counts, tiny as it is */
+        progression_woke(&tank);                /* a fry that was on its way: born now (2026-09-24) */
         display_port_wake();
         imu_port_wake();
         batlog_add(battery_pct(), battery_port_vbat_mv(), 0, true, "nap");
@@ -404,10 +405,11 @@ static void tank_task(void *arg) {
         { static int64_t last_bat; if (now - last_bat > 5LL * 60 * 1000000) {   /* battery log: awake sample every 5 min */
             batlog_add(battery_pct(), battery_port_vbat_mv(), display_port_brightness(), false, last_bat ? "" : "boot"); last_bat = now; } }
         tank.hold_light = setup_active() || touch_port_confirm_up();   /* no lights-out mid-name */
+        tank.ui_cover = tank.hold_light || touch_port_milestones() || touch_port_settings() || touch_port_shop();   /* a fry's spawning waits */
         tank_tick(&tank, dt, llm_ok ? advisor_llm_esp : advisor_rules);
         progression_tick(&tank, dt);
         battery_frame(now);
-        notice_tick(&tank, dt, setup_active() || touch_port_confirm_up() || touch_port_milestones() || touch_port_settings() || touch_port_shop());
+        notice_tick(&tank, dt, tank.ui_cover);
         { int cue = notice_take_cue(); if (cue >= 0) audio_port_play(cue, AUDIO_PITCH_ONE); }
         audio_port_set_night(tank.night);
         { static bool loop_on;                     /* the bubble loop rides the setup's placement page */

@@ -4,8 +4,10 @@
  *
  *  - Population: a new tank is two contrasting adults; the 3rd..POP_CAP-th
  *    fish ARRIVE as fry when care milestones are met (trust, feedings, a
- *    calm hold, a raised fry, drift). An arrival is staged when earned and
- *    shown at the next light-on (or boot) - an unannounced surprise.
+ *    calm hold, a raised fry, drift). An arrival is staged when earned; a
+ *    few seconds later the parents court down in the nursery grass and the
+ *    fry is born there, in front of the keeper (2026-09-24 - it used to wait
+ *    for the next light-on). A tank put to sleep first has it at the wake.
  *  - Growth: well-fed fish grow (size) and advance fry -> juv -> adult -> elder
  *    with time - every awake second, light on or off (2026-09-14, Strato:
  *    "fish don't stop growing with the light off"), and a slept span at
@@ -71,9 +73,22 @@ void progression_save(tank_t *t);
 extern float progression_time_scale;
 /* debug: stage and show an arrival now (sim key R); no-op at the cap */
 void progression_force_arrival(tank_t *t);
-/* debug: stage an arrival WITHOUT showing it - the courtship tell runs and
- * the fry appears at the next light-on (or progression_force_arrival) */
+/* debug: stage an arrival as if its last gate had just closed - the
+ * spawning follows (or progression_force_arrival, at once) */
 void progression_stage_arrival(tank_t *t);
+/* the spawning (2026-09-24, Strato: "new fry comes at next light on" felt
+ * unintuitive - there's no real need to turn the light on or off): once an
+ * arrival is staged, SPAWN_WAIT_MIN_S..SPAWN_WAIT_MAX_S awake seconds pass
+ * (not at once), then the courting pair swims down into the nursery grass;
+ * after SPAWN_DANCE_S of circling there together the fry is born between
+ * them. Lit or dark. The wait and the dance hold while a page covers the
+ * tank (tank_t.ui_cover) or no bed is tall enough to be born in. */
+#define SPAWN_WAIT_MIN_S  8.0f
+#define SPAWN_WAIT_MAX_S 20.0f   /* + the swim down: the courtship starts within ~30 s */
+#define SPAWN_DANCE_S    10.0f
+/* the device woke (a deep-sleep boot, or the grace's quick wake): a staged
+ * fry that missed its live birth is born now, in the grass */
+void progression_woke(tank_t *t);
 bool progression_arrival_pending(void);
 float progression_age_s(const tank_t *t, int idx);        /* grown seconds */
 /* director/debug: put a fish's tended clock at `seconds` and apply the stage
@@ -119,8 +134,8 @@ void progression_ack_milestones(tank_t *t);
  * picks the art), a title, the words (what to do - a plain sentence over two lines; Strato:
  * "all fish must have a minimum six out of 10 trust score", not a hint), a
  * progress phrase (where it stands), a 0..1 fraction and whether it is met. Returns the count, 0 at the
- * population cap. *staged = every gate is met and the fry waits for the
- * next light-on. Strings fit the pixel font: <= 25 chars at scale 2. */
+ * population cap. *staged = every gate is met and the fry is on its way
+ * (the spawning). Strings fit the pixel font: <= 25 chars at scale 2. */
 enum { FRY_REQ_TRUST, FRY_REQ_FEED, FRY_REQ_HOLD, FRY_REQ_GROW, FRY_REQ_CHANGE, FRY_REQ_GRASS, FRY_REQ_GLASS };
 #define FRY_REQ_MAX 5
 typedef struct {

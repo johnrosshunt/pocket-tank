@@ -61,6 +61,9 @@ reset the chip before anyone read the log.
   snail's card (midday), and the CASTLE - shop item 3, BEHIND / IN FRONT
   of the grass (flashed 2026-09-16 13:17; archive docs/batlog/2026-09-16_1317.txt),
   and the SNAIL drawn procedurally, crawling (flashed 2026-09-16 14:37;
-  archive docs/batlog/2026-09-16_1437.txt).
+  archive docs/batlog/2026-09-16_1437.txt); and everything through
+  2026-09-24 - the frond ceilings, the coral, the fry SPAWNING (a staged
+  fry is born on its own, no light-on; flashed 2026-09-24 11:04, archive
+  docs/batlog/2026-09-24_1104.txt).
 - Model partition: v4m (model_q4_v4m.bin, flashed 2026-09-15 ~06:00).
-- Save: navi + pebble (fry; Strato's reset of 2026-09-15 night).
+- Save: lori, mira, bolt (elders), sol (adult), kelp (fry) - the tank at the 2026-09-24 flash (was navi + pebble after Strato's reset of 2026-09-15 night).

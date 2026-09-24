@@ -131,6 +131,79 @@ static int selftest(void) {
     return distinct >= 5 ? 0 : 1;                 /* a live tank uses most goals */
 }
 
+/* the spawning (2026-09-24, Strato: "new fry comes at next light on" felt
+ * unintuitive): a staged fry is born on its own - a few seconds after its
+ * last gate the parents swim down into the nursery grass and court, then the
+ * fry comes, between them. The light has no say (leg A runs in the dark); a
+ * page over the tank holds it (B); a tank put to sleep first has it at the
+ * wake - a deep sleep (C) or the grace's quick wake (D). Runs on the test
+ * save the setup leg left: a pair, nothing staged. */
+static int spawn_prep(uint32_t seed) {
+    tank_init(&tank, seed); progression_boot(&tank);
+    for (int i = 0; i < tank.n_fish; i++) { tank.fish[i].hunger = 2; tank.fish[i].energy = 8; }
+    tank_veg_set(&tank, 0, 0.6f);                 /* a nursery, whatever the save grew */
+    progression_stage_arrival(&tank);
+    return tank.n_fish;
+}
+static int selftest_spawn(void) {
+    const float DT = 1.0f / 60.0f;
+    /* A: in the dark, nobody touching it */
+    int n0 = spawn_prep(40);
+    tank.light_auto = false; tank.light_manual_off = true;   /* the keeper turned the light off */
+    float t_spawn = -1, t_in = -1, t_born = -1; int pa = -1, pb = -1;
+    for (int i = 0; i < 60 * 120 && t_born < 0; i++) {
+        tank_tick(&tank, DT, advisor_rules); progression_tick(&tank, DT);
+        if (!tank.night) { printf("FAIL: the light came on by itself\n"); return 1; }
+        if (tank.spawning && t_spawn < 0) { t_spawn = i * DT; pa = tank.court_a; pb = tank.court_b; }
+        if (tank.spawning && tank.spawn_danced > 0 && t_in < 0) t_in = i * DT;
+        if (tank.n_fish != n0) t_born = i * DT;
+    }
+    printf("selftest-pop: spawning in the dark: the pair set off at %.1f s, in the grass at %.1f s, the fry at %.1f s\n", t_spawn, t_in, t_born);
+    if (t_born < 0) { printf("FAIL: no fry within 2 min of the staging\n"); return 1; }
+    if (t_spawn < SPAWN_WAIT_MIN_S - DT || t_spawn > SPAWN_WAIT_MAX_S + DT) { printf("FAIL: the courtship started at %.1f s, not %.0f..%.0f\n", t_spawn, SPAWN_WAIT_MIN_S, SPAWN_WAIT_MAX_S); return 1; }
+    if (t_in < 0 || t_in > 30) { printf("FAIL: the pair was not courting in the grass within 30 s (%.1f)\n", t_in); return 1; }
+    if (t_born - t_in < SPAWN_DANCE_S - DT) { printf("FAIL: the fry came %.1f s into the dance, before SPAWN_DANCE_S\n", t_born - t_in); return 1; }
+    {
+        const fish_t *f = &tank.fish[tank.n_fish - 1];
+        int b = tank_nursery_bed(&tank); float x0, x1; tank_veg_bed(&tank, b, &x0, &x1, NULL, NULL);
+        bool parents = (f->parent_a == pa && f->parent_b == pb) || (f->parent_a == pb && f->parent_b == pa);
+        if (!parents) { printf("FAIL: the fry's parents %d/%d are not the courting pair %d/%d\n", f->parent_a, f->parent_b, pa, pb); return 1; }
+        if (f->x < x0 || f->x > x1) { printf("FAIL: the fry was born at x %.0f, outside the nursery %.0f..%.0f\n", f->x, x0, x1); return 1; }
+        if (progression_newborn() != tank.n_fish - 1 || progression_arrival_pending() || tank.spawning) { printf("FAIL: the birth left the debt / staging wrong\n"); return 1; }
+    }
+    /* B: a page over the tank holds it, even mid-dance; the page gone, it resumes */
+    n0 = spawn_prep(41);
+    tank.ui_cover = true;
+    for (int i = 0; i < 60 * 60; i++) { tank_tick(&tank, DT, advisor_rules); progression_tick(&tank, DT); }
+    if (tank.n_fish != n0 || tank.spawning) { printf("FAIL: the fry came (or the pair courted) under a page\n"); return 1; }
+    tank.ui_cover = false;
+    int i = 0;
+    for (; i < 60 * 120 && !(tank.spawning && tank.spawn_danced > 2); i++) { tank_tick(&tank, DT, advisor_rules); progression_tick(&tank, DT); }
+    tank.ui_cover = true;                          /* the keeper opens the milestones mid-dance */
+    tank_tick(&tank, DT, advisor_rules); progression_tick(&tank, DT);
+    if (tank.spawning || tank.n_fish != n0) { printf("FAIL: the dance went on under a page\n"); return 1; }
+    tank.ui_cover = false;
+    for (i = 0; i < 60 * 120 && tank.n_fish == n0; i++) { tank_tick(&tank, DT, advisor_rules); progression_tick(&tank, DT); }
+    printf("selftest-pop: a page held the spawning 60 s and cut a dance short; closed, the fry came %.1f s later\n", i * DT);
+    if (tank.n_fish != n0 + 1) { printf("FAIL: no fry after the page closed\n"); return 1; }
+    /* C: the tank goes to sleep mid-dance; the deep-sleep wake has the fry at once */
+    n0 = spawn_prep(42);
+    for (i = 0; i < 60 * 120 && !tank.spawning; i++) { tank_tick(&tank, DT, advisor_rules); progression_tick(&tank, DT); }
+    if (!tank.spawning) { printf("FAIL: no courtship to interrupt\n"); return 1; }
+    progression_save(&tank);                       /* the sleep key saves */
+    tank_init(&tank, 43);
+    progression_wake(&tank, clock_port_now_unix() + 2 * 3600);
+    if (tank.n_fish != n0 + 1 || progression_newborn() != n0 || progression_arrival_pending()) { printf("FAIL: the wake did not deliver the fry (%d fish, owed %d)\n", tank.n_fish, progression_newborn()); return 1; }
+    /* D: the grace's quick wake (resume in place) delivers it too */
+    n0 = spawn_prep(44);
+    for (i = 0; i < 60 * 3; i++) { tank_tick(&tank, DT, advisor_rules); progression_tick(&tank, DT); }
+    tank_tick_sleep(&tank, 45);
+    progression_woke(&tank);
+    if (tank.n_fish != n0 + 1 || progression_arrival_pending()) { printf("FAIL: the quick wake did not deliver the fry\n"); return 1; }
+    printf("selftest-pop: slept before the birth: the fry is born at the wake (deep sleep and the quick wake)\n");
+    return 0;
+}
+
 /* population + progression + persistence, headless and fast */
 static int selftest_pop(void) {
     setenv("POCKET_TANK_SAVE", "/tmp/pocket-tank-selftest.sav", 1);   /* never touch the real save */
@@ -183,12 +256,13 @@ static int selftest_pop(void) {
     progression_time_scale = 600;                 /* 10 minutes of tended time per second */
     int arrivals = 0, last_n = tank.n_fish;
     bool saw_court = false;                       /* the tell fires before the fry */
+    bool saw_spawn = false;                       /* ... and the fry comes out of the spawning */
     float hold_x = 0, hold_y = 0;
-    /* up to 20 sim-minutes: the gates close in a few and the fry lands at the
-       NEXT light-on - since 2026-09-15 that is the keeper picking the tank up
-       after it sat still long enough to go dark (LIGHT_IDLE_S), so the keeper
-       here tends for 30 s and leaves it alone for 30 s (growth counts only
-       while lit, so the gates take about twice the lit minutes) */
+    /* up to 20 sim-minutes: the gates close in a few and the fry is born
+       seconds later, after the pair courts in the grass (the spawning,
+       2026-09-24 - it used to wait for the next light-on). The keeper here
+       tends for 30 s and leaves it alone for 30 s, lights-out opted in, so
+       the birth may land lit or dark */
     tank.light_auto = true;                       /* this keeper opted into lights-out (the default is MANUAL) */
     for (int i = 0; i < 60 * 60 * 20 && arrivals == 0; i++) {
         tank_tick(&tank, 1.0f / 60.0f, advisor_rules);
@@ -199,6 +273,7 @@ static int selftest_pop(void) {
         if (tending && i % 600 < 480) tank_touch_hold(&tank, hold_x, hold_y);   /* 8 s across the tank, 2 s off */
         progression_tick(&tank, 1.0f / 60.0f);
         saw_court |= (tank.courting && arrivals == 0);
+        saw_spawn |= (tank.spawning && arrivals == 0);
         if (tank.n_fish != last_n) {
             printf("  t=%.0fs arrival: %s (%s) bold %.2f social %.2f -> %d fish\n", tank.clock,
                    tank.fish[tank.n_fish - 1].name, STAGE_NAMES[tank.fish[tank.n_fish - 1].stage],
@@ -209,6 +284,7 @@ static int selftest_pop(void) {
     printf("selftest-pop: %d arrivals, %d fish, feedings %d, hold-approaches %d, pending %d, courted %d\n",
            arrivals, tank.n_fish, tank.player_feedings, tank.hold_approaches, progression_arrival_pending(), saw_court);
     if (arrivals > 0 && !saw_court) { printf("FAIL: no courtship tell before the first arrival\n"); return 1; }
+    if (arrivals > 0 && !saw_spawn) { printf("FAIL: the first fry was born without the spawning\n"); return 1; }
     for (int i = 0; i < tank.n_fish; i++)
         printf("  %-5s %s age %.0fh size %.2f ms 0x%03x trust %.1f\n", tank.fish[i].name,
                STAGE_NAMES[tank.fish[i].stage], progression_age_s(&tank, i) / 3600, tank.fish[i].size,
@@ -313,7 +389,7 @@ static int selftest_pop(void) {
     progression_save(&tank);
     tank_t saved = tank;
     tank_init(&tank, 5); progression_boot(&tank);
-    /* an arrival earned but not yet shown is delivered at boot (light on) */
+    /* an arrival earned but not yet born is delivered at boot (the wake) */
     int expect = saved.n_fish + (pending_at_save ? 1 : 0);
     if (tank.n_fish != expect) { printf("FAIL: restore n_fish %d != %d\n", tank.n_fish, expect); return 1; }
     for (int i = 0; i < saved.n_fish; i++)
@@ -496,6 +572,7 @@ static int selftest_pop(void) {
                tank.fish[0].name, tank.fish[0].color, tank.fish[0].accent, progression_setup_pending()); return 1;
     }
     printf("  setup ok: %s (blue) + %s, bubbles at x %.0f, saved and reloaded, nothing owed\n", tank.fish[0].name, tank.fish[1].name, tank.bubble_x);
+    if (selftest_spawn()) return 1;
     (void)system(cmd);                            /* leave no test save behind */
     return 0;
 }
@@ -1165,6 +1242,7 @@ static void frame_cb(lv_timer_t *timer) {
     last_ms = now;
     if (dt > 0.1f) dt = 0.1f;                     /* window drag pause */
     tank.hold_light = setup_active() || confirm_view;   /* no lights-out mid-name */
+    tank.ui_cover = tank.hold_light || milestones_view || settings_view || shop_view;   /* a fry's spawning waits */
     tank_tick(&tank, dt, llm_active ? advisor_llm : advisor_rules);
     progression_tick(&tank, dt);
     if (!confirm_view) {                          /* an arrival owed its welcome: the birth flow (setup.c) */
@@ -2302,6 +2380,7 @@ int main(int argc, char **argv) {
         rdown = k[SDL_SCANCODE_R];
         if (k[SDL_SCANCODE_Z] && !zdown) {         /* jump through a night of device sleep */
             tank_tick_sleep(&tank, 7 * 3600);
+            progression_woke(&tank);               /* a fry on its way is born at the wake */
             printf("slept 7 h: hunger now");
             for (int i = 0; i < tank.n_fish; i++) printf(" %.1f", tank.fish[i].hunger);
             printf("\n");
