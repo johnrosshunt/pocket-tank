@@ -95,6 +95,13 @@ typedef struct {
      * layer + 1 (0 = FRONT, an older save or one that never placed it) */
     float    castle_x;
     uint8_t  castle_z1, pad_castle[3];
+    /* the coral (2026-09-23): its centre x (0 = the default), its layer + 1
+     * (0 = MIDDLE, a save that never placed it) and its colour (0 = the
+     * palette's first). Older saves read zeros: no coral until it is bought. */
+    float    coral_x;
+    uint8_t  coral_z1, pad_coral[3];
+    uint32_t coral_rgb;
+    float    coral_growth;               /* CORAL_START..1 (0 = a save from before it grew: full) */
 } save_t;
 /* the smallest PTK2 save (pre-upkeep, 2026-08-30): anything shorter is not
  * ours. Every later build wrote sizeof(save_t) of its day - 448, 1112, 1304,
@@ -148,6 +155,7 @@ const sd_item_t SD_ITEMS[SD_ITEM_COUNT] = {
     { SD_ITEM_PLANT, "SWORD PLANT", "BROAD, VERTICAL LEAVES", "MORE COVER FOR YOUR CRITTERS", SD_PRICE_PLANT },   /* Strato's words (2026-09-16); the second line is 28 chars, the shop modal is 352 wide for it */
     { SD_ITEM_SNAIL, "SNAIL",       "GRAZES THE GLASS CLEAN,",   "EVEN WHILE THE TANK SLEEPS",  SD_PRICE_SNAIL },
     { SD_ITEM_CASTLE, "CASTLE",     "STONE TOWERS AND AN ARCH",  "THE FISH SWIM THROUGH IT",    SD_PRICE_CASTLE },   /* 2026-09-16 */
+    { SD_ITEM_CORAL,  "CORAL",      "A BRANCHING REEF CORAL,",   "GROWS FOR WEEKS, YOUR COLOR", SD_PRICE_CORAL },    /* 2026-09-23 */
 };
 static void sd_award(tank_t *t, int n) {
     if (n <= 0) return;
@@ -188,6 +196,7 @@ bool progression_buy(tank_t *t, int item) {
     if (it->bit == SD_ITEM_PLANT) tank_plant_place(t);
     if (it->bit == SD_ITEM_SNAIL) tank_snail_place(t);
     if (it->bit == SD_ITEM_CASTLE) tank_castle_place(t);
+    if (it->bit == SD_ITEM_CORAL) tank_coral_place(t);
     progression_save(t);                                   /* a purchase sticks at once */
     return true;
 }
@@ -529,6 +538,9 @@ static bool load_save(tank_t *t, int64_t *saved_unix) {
     }
     if (sv.plant_x > 0) tank_decor_set(t, 0, sv.plant_x, sv.plant_z1 ? sv.plant_z1 - 1 : DECOR_Z_MIDDLE);
     if (sv.castle_x > 0) tank_decor_set(t, 2, sv.castle_x, sv.castle_z1 ? sv.castle_z1 - 1 : DECOR_Z_FRONT);
+    if (sv.coral_x > 0) tank_decor_set(t, 3, sv.coral_x, sv.coral_z1 ? sv.coral_z1 - 1 : DECOR_Z_MIDDLE);
+    if (sv.coral_rgb) tank_coral_set_rgb(t, sv.coral_rgb);
+    t->coral_growth = sv.coral_growth > 0 ? sv.coral_growth : 0;   /* 0 = full (tank_coral_growth) */
     s_sd_prev_feedings = t->player_feedings;         /* meals before this boot are not back-paid */
     s_sd_pending = 0;
     s_arrival_pending = sv.arrival_pending;
@@ -707,6 +719,8 @@ void progression_save(tank_t *t) {
     for (int i = 0; i < VEG_FRONDS_MAX; i++) sv.veg_h3[i] = (t->sd_unlocks & SD_ITEM_PLANT) ? t->veg_h[3][i] : 0;
     sv.plant_x = t->plant_x > 0 ? t->plant_x : 0; sv.plant_z1 = (uint8_t)(t->plant_z + 1);
     sv.castle_x = t->castle_x > 0 ? t->castle_x : 0; sv.castle_z1 = (uint8_t)(t->castle_z + 1);
+    sv.coral_x = t->coral_x > 0 ? t->coral_x : 0; sv.coral_z1 = (uint8_t)(t->coral_z + 1); sv.coral_rgb = t->coral_rgb;
+    sv.coral_growth = t->coral_growth;
     sv.setup_pending = s_setup_pending;
     sv.newborn_p1 = (uint8_t)(s_newborn >= 0 && s_newborn < t->n_fish ? s_newborn + 1 : 0);
     sv.bubble_x = t->bubble_x;

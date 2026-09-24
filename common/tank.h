@@ -295,6 +295,17 @@ typedef struct tank {
      * spot) and its depth - BACK or FRONT only (see tank_decor_z_count). Both saved. */
     float    castle_x;
     uint8_t  castle_z;
+    /* the coral (2026-09-23): its centre x on the floor (<= 0 = the default
+     * spot), its depth (all three), and its colour as 0xRRGGBB (0 = the
+     * default, CORAL_PAL[0]) - the keeper picks it on the placement page. All saved. */
+    float    coral_x;
+    uint8_t  coral_z;
+    uint32_t coral_rgb;
+    float    coral_growth;         /* CORAL_START..CORAL_FULL: a stub to the full fan over ~CORAL_GROW_S,
+                                    * then the crown, awake or asleep alike (Strato, 2026-09-23:
+                                    * "something at a much different pace showing progression"). Saved. */
+    float    coral_acc;            /* awake seconds not yet applied: a frame's 1/60 s over 30 days is
+                                    * under float precision next to the growth, so it lands by the minute */
     /* keeper habits the tank remembers (persisted by progression.c) */
     float    feed_spot_x;          /* where the keeper usually feeds (EMA); <0 = unknown */
     int      player_feedings;      /* MEALS: feedings the fish ate from (2026-09-14, Strato: a tap
@@ -493,7 +504,7 @@ void  tank_set_bubble_x(tank_t *t, float x);
  * The items are bits in tank_t.sd_unlocks; progression.c sells them
  * (progression_buy) and tank.c gives them their place. A bought thing is in
  * the tank for good. */
-enum { SD_ITEM_PLANT = 1u << 0, SD_ITEM_SNAIL = 1u << 1, SD_ITEM_CASTLE = 1u << 2, SD_ITEM_COUNT = 3 };
+enum { SD_ITEM_PLANT = 1u << 0, SD_ITEM_SNAIL = 1u << 1, SD_ITEM_CASTLE = 1u << 2, SD_ITEM_CORAL = 1u << 3, SD_ITEM_COUNT = 4 };
 /* per-fish paid bits (sd_paid_fish) */
 enum { SD_PAID_JUV = 1u << 0, SD_PAID_ADULT = 1u << 1, SD_PAID_ELDER = 1u << 2, SD_PAID_TRUST = 1u << 3 };
 #define PX_PER_INCH 24.0f          /* the tank reads as ~15 in tall; a fish ~1.7 in */
@@ -506,6 +517,7 @@ veg_kind_t tank_veg_kind(const tank_t *t, int b);
 void  tank_plant_place(tank_t *t);
 void  tank_snail_place(tank_t *t);
 void  tank_castle_place(tank_t *t);
+void  tank_coral_place(tank_t *t);
 /* placing the decor (2026-09-16, Strato: a bought piece "should allow the
  * player to place the piece wherever they like", with a depth choice): a
  * placeable item has a centre x along the floor - clamped inside the
@@ -526,6 +538,31 @@ enum { DECOR_Z_BACK = 0, DECOR_Z_MIDDLE = 1, DECOR_Z_FRONT = 2, DECOR_Z_N = 3 };
  * (the keep behind them, the gate wall and the front towers over them). */
 #define CASTLE_HALF_W   92
 #define CASTLE_X_DEFAULT 300.0f
+/* the coral (2026-09-23, Strato's coral-single.png, drawn procedurally in
+ * render.c): a branching fan ~60 px wide and ~90 tall on the floor, item 3.
+ * All three depths; the default is AMONG - nestled in the reef bed's grass,
+ * the fish in front of it. Its colour is the keeper's: CORAL_PAL is the
+ * swatch row on its placement page (the fish colour page's idiom), the
+ * pick saved as RGB so a palette change never recolours a tank. */
+#define CORAL_HALF_W    30
+#define CORAL_X_DEFAULT 150.0f
+#define CORAL_N         8
+#define CORAL_START     0.45f              /* a bought coral is young but ESTABLISHED: the trunk and the two
+                                            * low branches (Strato, 2026-09-23: a nub "is not satisfying ...
+                                            * some higher level of instant gratification"); ~17 days to the
+                                            * fan from here, the crown a week after */
+#define CORAL_FULL      1.25f              /* growth runs past the fan: 1.0 = the fan complete, then a
+                                            * ring of delicate tentacles sprouts from the top and reaches
+                                            * its full spread at CORAL_FULL (Strato, 2026-09-23) */
+#define CORAL_GROW_S    (30.0f * 86400.0f) /* stub -> the full fan in ~30 days of real time, the crown
+                                            * ~a week more; the branches come in one by one (render.c
+                                            * CORAL_SEGS' growth windows), a slow arc next to the grass's
+                                            * day. The fan tops out ~76 px up the glass, a quarter of the
+                                            * grass's ceilings - a modest thing, never a wall. */
+float    tank_coral_growth(const tank_t *t);      /* CORAL_START..CORAL_FULL (CORAL_FULL when unset) */
+extern const uint32_t CORAL_PAL[CORAL_N];
+uint32_t tank_coral_rgb(const tank_t *t);          /* the colour, the default when unset */
+void     tank_coral_set_rgb(tank_t *t, uint32_t rgb);
 bool  tank_decor_placeable(int item);      /* SD item index: has an x and a layer */
 int   tank_decor_z_count(int item);        /* depths the item offers: 3 (BACK/MIDDLE/FRONT) or 2 (BACK/FRONT) */
 int   tank_decor_z_at(int item, int i);    /* the i-th offered depth (the placement bar's segment i) */

@@ -966,9 +966,15 @@ static int selftest_tend(void) {
     progression_save(&tank);
     tank_t before = tank;
     tank_init(&tank, 9); progression_boot(&tank);
-    if (memcmp(tank.algae, before.algae, ALGAE_CELLS) != 0 ||
-        memcmp(tank.veg_h, before.veg_h, sizeof tank.veg_h) != 0 ||
-        memcmp(tank.veg_growth, before.veg_growth, sizeof tank.veg_growth) != 0 ||
+    /* the boot lives the seconds since the save (the stamp is whole seconds:
+       crossing one grows every frond a hair - 1/72000 - which used to make
+       this compare flaky, 2026-09-23), so the heights get a tolerance */
+    bool veg_same = true;
+    for (int b = 0; b < VEG_BEDS_MAX && veg_same; b++) {
+        if (fabsf(tank.veg_growth[b] - before.veg_growth[b]) > 1e-3f) veg_same = false;
+        for (int i = 0; i < VEG_FRONDS_MAX; i++) if (fabsf(tank.veg_h[b][i] - before.veg_h[b][i]) > 1e-3f) veg_same = false;
+    }
+    if (memcmp(tank.algae, before.algae, ALGAE_CELLS) != 0 || !veg_same ||
         tank.trims != before.trims || tank.cells_cleaned != before.cells_cleaned) {
         printf("FAIL: upkeep state lost in save round-trip\n"); return 1;
     }
@@ -1496,6 +1502,34 @@ static int snapshot(const char *prefix, int seconds) {
         snprintf(path, sizeof path, "%s_place_castle.ppm", prefix); write_ppm(path, fb);
         setup_cancel(&tank);
     }
+    /* the coral (2026-09-23): bought, at its default spot AMONG the reef
+       bed's grass in the reference orange, a fish in front; then IN FRONT in
+       violet; then BEHIND; then its placement page with the COLOR row */
+    {
+        tank.sd_unlocks &= ~SD_ITEM_CASTLE;
+        tank.sd_unlocks |= SD_ITEM_CORAL; tank_coral_place(&tank); tank_coral_set_rgb(&tank, CORAL_PAL[0]);
+        tank_veg_set(&tank, 0, 0.55f);
+        tank.fish[0].x = 150; tank.fish[0].y = TANK_H - 16 - 40; tank.fish[0].heading = 0;
+        tank.fish[3].x = 190; tank.fish[3].y = TANK_H - 16 - 90; tank.fish[3].heading = 3.0f;
+        for (int i = 0; i < 30; i++) render_tank(&tank, fb, TANK_W);
+        snprintf(path, sizeof path, "%s_coral_young.ppm", prefix); write_ppm(path, fb);      /* just bought: CORAL_START */
+        tank.coral_growth = 0.72f; render_tank(&tank, fb, TANK_W); render_tank(&tank, fb, TANK_W);
+        snprintf(path, sizeof path, "%s_coral_half.ppm", prefix); write_ppm(path, fb);       /* a week in */
+        tank.coral_growth = 1.0f; render_tank(&tank, fb, TANK_W); render_tank(&tank, fb, TANK_W);
+        snprintf(path, sizeof path, "%s_coral_fan.ppm", prefix); write_ppm(path, fb);        /* the fan complete, no crown yet */
+        tank.coral_growth = CORAL_FULL; render_tank(&tank, fb, TANK_W); render_tank(&tank, fb, TANK_W);
+        snprintf(path, sizeof path, "%s_coral.ppm", prefix); write_ppm(path, fb);            /* the crown out */
+        tank_decor_set(&tank, 3, 150, DECOR_Z_FRONT); tank_coral_set_rgb(&tank, CORAL_PAL[3]);
+        render_tank(&tank, fb, TANK_W); render_tank(&tank, fb, TANK_W);
+        snprintf(path, sizeof path, "%s_coral_front.ppm", prefix); write_ppm(path, fb);
+        tank_decor_set(&tank, 3, 150, DECOR_Z_BACK); tank_coral_set_rgb(&tank, CORAL_PAL[1]);
+        render_tank(&tank, fb, TANK_W); render_tank(&tank, fb, TANK_W);
+        snprintf(path, sizeof path, "%s_coral_behind.ppm", prefix); write_ppm(path, fb);
+        tank_decor_set(&tank, 3, 150, DECOR_Z_MIDDLE); tank_coral_set_rgb(&tank, CORAL_PAL[0]); setup_begin_place(&tank, 3);
+        render_tank(&tank, fb, TANK_W); render_setup(&tank, fb, TANK_W, 1.0f);
+        snprintf(path, sizeof path, "%s_place_coral.ppm", prefix); write_ppm(path, fb);
+        setup_cancel(&tank);
+    }
     printf("snapshot: %d fish, wrote %s_{tank,card,card1,milestones,milestones_fry,confirm,setup_*}.ppm\n", tank.n_fish, prefix);
     return 0;
 }
@@ -1738,7 +1772,7 @@ static int selftest_shop(void) {
            walls; BEHIND the fish and the grass pass in front of it; the spot and
            the depth survive a save */
         {
-            if (SD_ITEM_COUNT != 3 || SD_ITEMS[2].bit != SD_ITEM_CASTLE || SD_ITEMS[2].price != SD_PRICE_CASTLE) { printf("FAIL: the castle is not the third item\n"); return 1; }
+            if (SD_ITEM_COUNT != 4 || SD_ITEMS[2].bit != SD_ITEM_CASTLE || SD_ITEMS[2].price != SD_PRICE_CASTLE) { printf("FAIL: the castle is not the third item\n"); return 1; }
             if (!tank_decor_placeable(2) || tank_decor_z_count(2) != 2 || tank_decor_z_at(2, 0) != DECOR_Z_BACK || tank_decor_z_at(2, 1) != DECOR_Z_FRONT
                 || tank_decor_z_index(2, DECOR_Z_FRONT) != 1 || tank_decor_z_index(2, DECOR_Z_BACK) != 0) { printf("FAIL: the castle's depths\n"); return 1; }
             tank.sd_balance = SD_PRICE_CASTLE - 1;
@@ -1816,6 +1850,77 @@ static int selftest_shop(void) {
         if (render_shop_tap(&tank, 324 + 40, 312 + 10) != SHOP_TAP_CLOSE) { printf("FAIL: CLOSE\n"); return 1; }
         render_shop_leave();
         printf("selftest-shop: pages: the sand dollar and UPGRADES open the shop; a row -> modal -> UNLOCK buys; a dim UNLOCK does not; HOW TO EARN; CLOSE\n");
+    }
+    /* the coral (2026-09-23): the fourth item at 100, placeable with all three
+       depths (AMONG by default, in the reef bed's grass), its colour picked on
+       the placement page's COLOR row and kept by the save; four rows fit the
+       shop page, so there is one page (the arrows appear with a fifth item) */
+    {
+        static uint16_t fb[TANK_W * TANK_H];
+        if (SD_ITEMS[3].bit != SD_ITEM_CORAL || SD_ITEMS[3].price != SD_PRICE_CORAL || SD_PRICE_CORAL != 100) { printf("FAIL: the coral is not the fourth item at 100\n"); return 1; }
+        if (!tank_decor_placeable(3) || tank_decor_z_count(3) != 3 || tank_decor_z_at(3, 1) != DECOR_Z_MIDDLE || tank_decor_half_w(3) != CORAL_HALF_W) { printf("FAIL: the coral's depths\n"); return 1; }
+        tank.sd_unlocks &= ~SD_ITEM_CORAL; tank.sd_balance = SD_PRICE_CORAL - 1;
+        if (progression_buy(&tank, 3)) { printf("FAIL: the coral sold short\n"); return 1; }
+        tank.sd_balance = SD_PRICE_CORAL;
+        if (!progression_buy(&tank, 3) || tank.sd_balance != 0 || !(tank.sd_unlocks & SD_ITEM_CORAL)) { printf("FAIL: the coral did not sell at %d\n", SD_PRICE_CORAL); return 1; }
+        if (fabsf(tank_decor_x(&tank, 3) - CORAL_X_DEFAULT) > 0.01f || tank_decor_z(&tank, 3) != DECOR_Z_MIDDLE || tank_coral_rgb(&tank) != CORAL_PAL[0]) { printf("FAIL: the coral did not land at the default spot, AMONG, in the first colour\n"); return 1; }
+        /* the shop page: the fourth row opens its modal, MOVE in it */
+        render_shop_leave(); render_shop(&tank, fb, TANK_W);
+        if (render_shop_tap(&tank, 100, 98 + 3 * 56 + 20) != SHOP_TAP_KEPT) { printf("FAIL: the coral's row did not open its modal\n"); return 1; }
+        render_shop(&tank, fb, TANK_W);
+        if (render_shop_tap(&tank, 48 + 352 / 2, 48 + 244 - 12 - 16) != SHOP_TAP_MOVE + 3) { printf("FAIL: MOVE in the coral's modal\n"); return 1; }
+        render_shop_leave();
+        /* its placement page: the COLOR row above the water, a swatch sets the colour, the drag carries it, DONE saves all three */
+        setup_begin_place(&tank, 3);
+        if (!setup_is_place() || setup_item() != 3) { printf("FAIL: the coral's placement page did not open\n"); return 1; }
+        int sx = SETUP_COL_X + 3 * SETUP_COL_PX + SETUP_COL_W / 2;
+        if (setup_hit(sx, SETUP_COL_Y + SETUP_COL_H / 2) != SETUP_HIT_COLOR0 + 3) { printf("FAIL: the fourth swatch's hit (%d)\n", setup_hit(sx, SETUP_COL_Y + SETUP_COL_H / 2)); return 1; }
+        if (setup_hit(SETUP_COL_X + 4, SETUP_COL_Y + SETUP_COL_H + 8) != SETUP_HIT_COLOR0) { printf("FAIL: a low finger under the first swatch\n"); return 1; }
+        setup_touch(&tank, sx, SETUP_COL_Y + 10, true); setup_touch(&tank, sx + 1, SETUP_COL_Y + 12, false);
+        if (tank_coral_rgb(&tank) != CORAL_PAL[3]) { printf("FAIL: the swatch did not colour the coral (%06x)\n", (unsigned)tank_coral_rgb(&tank)); return 1; }
+        render_tank(&tank, fb, TANK_W); render_setup(&tank, fb, TANK_W, 1.0f);        /* the page draws, the coral in the new colour */
+        int bx = (TANK_W - 3 * SETUP_DEPTH_SEG_W) / 2;
+        setup_touch(&tank, bx + 2 * SETUP_DEPTH_SEG_W + 10, SETUP_DEPTH_Y + 18, true); setup_touch(&tank, bx + 2 * SETUP_DEPTH_SEG_W + 12, SETUP_DEPTH_Y + 20, false);
+        if (tank_decor_z(&tank, 3) != DECOR_Z_FRONT) { printf("FAIL: IN FRONT did not set the coral's depth\n"); return 1; }
+        setup_touch(&tank, 120, SETUP_PLACE_CORAL_Y + 20, true); setup_touch(&tank, 320, SETUP_PLACE_CORAL_Y + 20, true); setup_touch(&tank, 320, SETUP_PLACE_CORAL_Y + 20, false);
+        if (fabsf(tank_decor_x(&tank, 3) - 320) > 0.01f) { printf("FAIL: the drag did not carry the coral (x %.0f)\n", tank_decor_x(&tank, 3)); return 1; }
+        setup_touch(&tank, 120, SETUP_COL_Y + SETUP_COL_H + 4, true); setup_touch(&tank, 121, SETUP_COL_Y + SETUP_COL_H + 4, false);   /* a low press under the row is a swatch (the second), never a drag */
+        if (fabsf(tank_decor_x(&tank, 3) - 320) > 0.01f || tank_coral_rgb(&tank) != CORAL_PAL[1]) { printf("FAIL: a press under the COLOR row (x %.0f, %06x)\n", tank_decor_x(&tank, 3), (unsigned)tank_coral_rgb(&tank)); return 1; }
+        setup_activate(&tank, SETUP_HIT_NEXT);                                         /* DONE: saved */
+        if (setup_active()) { printf("FAIL: DONE did not close the coral's page\n"); return 1; }
+        render_tank(&tank, fb, TANK_W); render_tank(&tank, fb, TANK_W);              /* IN FRONT, drawn over the fish: no crash, no rebake loop */
+        tank_decor_set(&tank, 3, 320, DECOR_Z_BACK); render_tank(&tank, fb, TANK_W); render_tank(&tank, fb, TANK_W);   /* BEHIND: baked */
+        progression_save(&tank);
+        tank_init(&tank, 4243); progression_boot(&tank);
+        if (!(tank.sd_unlocks & SD_ITEM_CORAL) || fabsf(tank_decor_x(&tank, 3) - 320) > 0.01f || tank_decor_z(&tank, 3) != DECOR_Z_BACK || tank_coral_rgb(&tank) != CORAL_PAL[1]) {
+            printf("FAIL: the save lost the coral (x %.0f z %d colour %06x)\n", tank_decor_x(&tank, 3), tank_decor_z(&tank, 3), (unsigned)tank_coral_rgb(&tank)); return 1; }
+        printf("selftest-shop: the coral: fourth row at %d, MOVE, the COLOR row (swatch 3 -> %06x, a low press = swatch 1), IN FRONT, dragged to 320, DONE saved; the reload kept the spot, the depth and the colour\n", SD_PRICE_CORAL, (unsigned)CORAL_PAL[3]);
+        /* it grows, slowly, awake or asleep: a bought coral starts as a stub,
+           a day adds ~0.03, a month makes the fan, a week more the crown; the
+           sprite has more of it at every stage; the growth rides the save */
+        if (fabsf(tank_coral_growth(&tank) - CORAL_START) > 1e-4f) { printf("FAIL: the reloaded coral is not young (%.2f)\n", tank_coral_growth(&tank)); return 1; }
+        float g0 = tank_coral_growth(&tank);
+        tank_tick_sleep(&tank, 86400);
+        float g1 = tank_coral_growth(&tank);
+        for (int i = 0; i < 61 * 60; i++) tank_tick(&tank, 1.0f / 60.0f, advisor_rules);   /* a minute awake grows it the same pace: one 60 s chunk lands (61 s: 3600 float sixtieths fall a hair short of 60) */
+        float g2 = tank_coral_growth(&tank);
+        if (g1 - g0 < 0.030f || g1 - g0 > 0.036f || g2 - g1 < 2.0e-5f || g2 - g1 > 2.7e-5f) { printf("FAIL: the coral's pace (day +%.4f, minute +%.6f)\n", g1 - g0, g2 - g1); return 1; }
+        int c_young = render_coral_cells(CORAL_START), c_half = render_coral_cells(0.72f), c_fan = render_coral_cells(1.0f);
+        if (!(c_young < c_half && c_half < c_fan) || c_young < 150 || c_fan < 300) { printf("FAIL: the sprite does not grow (%d, %d, %d cells)\n", c_young, c_half, c_fan); return 1; }
+        tank_tick_sleep(&tank, 40 * 86400);
+        if (tank_coral_growth(&tank) != CORAL_FULL) { printf("FAIL: 40 days did not finish the coral (%.2f)\n", tank_coral_growth(&tank)); return 1; }
+        /* the crown: at CORAL_FULL there are pixels above the fan's top that the fan alone never touches */
+        tank_decor_set(&tank, 3, 224, DECOR_Z_FRONT);
+        tank.coral_growth = 1.0f; render_tank(&tank, fb, TANK_W); render_tank(&tank, fb, TANK_W);
+        static uint16_t fb2[TANK_W * TANK_H]; memcpy(fb2, fb, sizeof fb2);
+        tank.coral_growth = CORAL_FULL; render_tank(&tank, fb, TANK_W); render_tank(&tank, fb, TANK_W);
+        int crown = 0, ytop = TANK_H - 14 - 92;
+        for (int y = ytop - 12; y < ytop + 16; y++) for (int x = 224 - 40; x < 224 + 40; x++) crown += fb[y * TANK_W + x] != fb2[y * TANK_W + x];
+        if (crown < 30) { printf("FAIL: no crown above the grown coral (%d px differ)\n", crown); return 1; }
+        progression_save(&tank); tank_init(&tank, 4244); progression_boot(&tank);
+        if (tank_coral_growth(&tank) != CORAL_FULL) { printf("FAIL: the save lost the coral's growth\n"); return 1; }
+        printf("selftest-shop: the coral grows: a day +%.3f, a minute awake +%.6f; %d / %d / %d cells young / half / fan; 40 days = %.2f with a crown of %d px; saved\n", g1 - g0, g2 - g1, c_young, c_half, c_fan, CORAL_FULL, crown);
+        tank_veg_set(&tank, 3, VEG_START);
     }
     /* the save carries it all */
     {
@@ -2038,6 +2143,8 @@ int main(int argc, char **argv) {
     bool fdown = false, ndown = false, ldown = false;
     bool udown = false, mdown = false, mkdown = false, rdown = false, zdown = false, gdown = false, xdown = false, sdown = false, vdown = false, bdown = false, fourdown = false, ddown = false;
     bool cdown = false;             /* C: the castle prototype */
+    bool kdown = false;             /* K: the coral (colours cycle) */
+    bool jdown = false;             /* J: the coral's growth, a step */
     uint32_t press_ms = 0; int press_x = 0, press_y = 0;
     float press_fx[N_FISH_MAX] = {0}, press_fy[N_FISH_MAX] = {0};
     while (1) {
@@ -2169,6 +2276,19 @@ int main(int argc, char **argv) {
                    (tank.sd_unlocks & SD_ITEM_CASTLE) ? "in the tank" : "gone", SD_PRICE_CASTLE);
         }
         cdown = k[SDL_SCANCODE_C];
+        if (k[SDL_SCANCODE_K] && !kdown) {         /* the coral (2026-09-23): granted free; again = the next colour; past the last takes it away */
+            if (!(tank.sd_unlocks & SD_ITEM_CORAL)) { tank.sd_unlocks |= SD_ITEM_CORAL; tank_coral_place(&tank); tank_coral_set_rgb(&tank, CORAL_PAL[0]); }
+            else { int i = 0; while (i < CORAL_N && CORAL_PAL[i] != tank_coral_rgb(&tank)) i++;
+                   if (i + 1 < CORAL_N) tank_coral_set_rgb(&tank, CORAL_PAL[i + 1]); else tank.sd_unlocks &= ~SD_ITEM_CORAL; }
+            printf("coral: %s (free; the shop sells it at %d, MOVE in its modal places and colours it)\n",
+                   (tank.sd_unlocks & SD_ITEM_CORAL) ? "in the tank" : "gone", SD_PRICE_CORAL);
+        }
+        kdown = k[SDL_SCANCODE_K];
+        if (k[SDL_SCANCODE_J] && !jdown && (tank.sd_unlocks & SD_ITEM_CORAL)) {   /* the coral's growth, a step at a time (a month in ~8 taps) */
+            tank.coral_growth = tank_coral_growth(&tank) + 0.15f > CORAL_FULL ? CORAL_START : tank_coral_growth(&tank) + 0.15f;
+            printf("coral growth %.2f (1.0 = the fan, %.2f = the crown)\n", tank.coral_growth, CORAL_FULL);
+        }
+        jdown = k[SDL_SCANCODE_J];
         if (k[SDL_SCANCODE_D] && !ddown) { progression_sd_grant(&tank, 50); printf("+50 sand dollars (%d)\n", tank.sd_balance); }
         ddown = k[SDL_SCANCODE_D];
         if (k[SDL_SCANCODE_U] && !udown) { ui_visible = !ui_visible; }

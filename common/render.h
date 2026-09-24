@@ -131,6 +131,7 @@ enum { SHOP_TAP_NONE = 0, SHOP_TAP_KEPT = 1, SHOP_TAP_CLOSE = 2, SHOP_TAP_BUY = 
 void render_shop(const tank_t *t, uint16_t *fb, int stride);
 int  render_shop_tap(const tank_t *t, float x, float y);
 void render_shop_leave(void);
+int  render_coral_cells(float growth);   /* the coral sprite's filled cells at a growth (the sim's selftest) */
 /* the sand dollar toast: dollars awarded during play (progression_sd_take_award)
  * show as a small pill top centre of the live tank, "+N" beside the coin,
  * for a few seconds; amounts that land while it is up add on. Call every

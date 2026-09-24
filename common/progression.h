@@ -161,6 +161,7 @@ const char *const *progression_fry_tip(int kind);
 #define SD_PRICE_PLANT 40
 #define SD_PRICE_SNAIL 80
 #define SD_PRICE_CASTLE 150
+#define SD_PRICE_CORAL 100
 typedef struct {
     uint32_t    bit;               /* SD_ITEM_* */
     const char *name;              /* <= 12 chars, the pixel font */

@@ -45,6 +45,7 @@ static bool page_is_last(void) { return s_page == SETUP_PG_CARE || s_page == SET
 static bool page_one_button(void) { return s_page == SETUP_PG_WELCOME || s_page == SETUP_PG_BORN; }   /* a lone NEXT at the foot */
 static int  first_page(void) { return s_place ? SETUP_PG_PLACE : s_birth ? SETUP_PG_BORN : SETUP_PG_WELCOME; }
 static bool nav_on_top(void) { return (page_is_name() && s_kbd != SETUP_KBD_GRID) || page_is_look() || s_page == SETUP_PG_BUBBLES || s_page == SETUP_PG_PLACE; }
+static int  place_y(void) { return s_item == 3 ? SETUP_PLACE_CORAL_Y : SETUP_PLACE_Y; }   /* where the drag zone starts */
 static const char *fish_name(const tank_t *t, int i) { return i >= 0 && i < t->n_fish ? t->fish[i].name : "?"; }
 static void stage(tank_t *t);
 
@@ -244,6 +245,15 @@ int setup_hit(float x, float y) {
         return 0;
     }
     if (s_page == SETUP_PG_PLACE) {
+        if (s_item == 3) {                              /* the coral's COLOR row: the nearest swatch along x, a band 12 px around */
+            int rw = (SETUP_COL_N - 1) * SETUP_COL_PX + SETUP_COL_W;
+            if (in_box(x, y, SETUP_COL_X, SETUP_COL_Y, rw, SETUP_COL_H, 12)) {
+                int i = (int)((x - SETUP_COL_X + (SETUP_COL_PX - SETUP_COL_W) * 0.5f) / SETUP_COL_PX);
+                if (i < 0) i = 0;
+                if (i >= SETUP_COL_N) i = SETUP_COL_N - 1;
+                return SETUP_HIT_COLOR0 + i;
+            }
+        }
         /* the DEPTH bar: a band 8 px around it, the segment under the finger
            (the item's own depths: the plant's three, the castle's two) */
         int n = tank_decor_z_count(s_item), bw = n * SETUP_DEPTH_SEG_W, bx = (TANK_W - bw) / 2;
@@ -273,6 +283,8 @@ void setup_activate(tank_t *t, int id) {
         if (id == SETUP_HIT_NEXT) { s_active = false; tank_emit(TEV_CONFIRM, -1); progression_save(t); }
         else if (id >= SETUP_HIT_Z0 && id < SETUP_HIT_Z0 + DECOR_Z_N)
             tank_decor_set(t, s_item, tank_decor_x(t, s_item), id - SETUP_HIT_Z0);
+        else if (s_item == 3 && id >= SETUP_HIT_COLOR0 && id < SETUP_HIT_COLOR0 + CORAL_N)
+            tank_coral_set_rgb(t, CORAL_PAL[id - SETUP_HIT_COLOR0]);   /* the coral wears it at once; DONE saves it */
         return;
     }
     if (id == SETUP_HIT_NEXT) {
@@ -317,7 +329,7 @@ void setup_touch(tank_t *t, float x, float y, bool down) {
         if (s_page == SETUP_PG_BUBBLES && !h && y > SETUP_TOP_BTN_Y + SETUP_BTN_H + 8) {
             tank_set_bubble_x(t, x); s_spun = true;         /* the column comes to the finger */
         }
-        if (s_page == SETUP_PG_PLACE && !h && y > SETUP_PLACE_Y) {
+        if (s_page == SETUP_PG_PLACE && !h && y > place_y()) {
             tank_decor_set(t, s_item, x, tank_decor_z(t, s_item)); s_spun = true;   /* the piece comes to the finger */
         }
     } else if (down && s_page == SETUP_PG_BUBBLES && s_spun) {
@@ -390,6 +402,18 @@ static void leaf_glyph(uint16_t *fb, int stride, int cx, int y_bot, int h, uint3
 }
 /* a little castle for the castle's depth tiles: two towers, a wall with
  * merlons, the arch - the stone tones of the real one */
+/* a little coral for its depth tiles: a trunk and four branches, rounded
+ * with 2 px blocks, in the keeper's colour with a lit tip */
+static void coral_glyph(uint16_t *fb, int stride, int cx, int y_bot, uint32_t rgb) {
+    uint32_t lit = ((rgb >> 16 & 255) * 3 / 4 + 64) << 16 | ((rgb >> 8 & 255) * 3 / 4 + 64) << 8 | ((rgb & 255) * 3 / 4 + 40);
+    render_rect(fb, stride, cx - 2, y_bot - 26, 4, 27, rgb);                       /* the trunk */
+    render_rect(fb, stride, cx - 2, y_bot - 28, 4, 2, lit);
+    static const int8_t br[4][3] = { { -1, 8, 7 }, { 1, 13, 6 }, { -1, 17, 5 }, { 1, 21, 4 } };   /* side, height, length */
+    for (int k = 0; k < 4; k++) {
+        int s = br[k][0], y = y_bot - br[k][1], n = br[k][2];
+        for (int i = 0; i < n; i++) render_rect(fb, stride, cx + (s > 0 ? 2 + i * 2 : -4 - i * 2), y - i, 2, 3, i == n - 1 ? lit : rgb);
+    }
+}
 static void castle_glyph(uint16_t *fb, int stride, int cx, int y_bot, uint32_t wall, uint32_t roof) {
     const uint32_t tower = 0x87795f, dark = 0x0b1a22, trim = 0xc25f38;
     render_rect(fb, stride, cx - 14, y_bot - 14, 29, 15, wall);
@@ -416,6 +440,18 @@ static void depth_tile(const tank_t *t, uint16_t *fb, int stride, int x, int y, 
         if (z == DECOR_Z_BACK) castle_glyph(fb, stride, cx, yb, 0xa99b7b, 0xc4a95e);
         leaf_glyph(fb, stride, cx - 14, yb, lh, la); leaf_glyph(fb, stride, cx + 15, yb, lh, lb);
         if (z != DECOR_Z_BACK) castle_glyph(fb, stride, cx, yb, 0xa99b7b, 0xc4a95e);
+        return;
+    }
+    if (item == 3) {                                    /* the coral, left of centre, the fish passing to its right: behind the
+                                                           grass and the fish / among the grass, the fish in front / over all */
+        uint32_t rgb = tank_coral_rgb(t);
+        const int kx = cx - 20;
+        if (z == DECOR_Z_BACK) coral_glyph(fb, stride, kx, yb, rgb);
+        leaf_glyph(fb, stride, cx - 36, yb, lh, la);
+        if (z == DECOR_Z_MIDDLE) coral_glyph(fb, stride, kx, yb, rgb);
+        leaf_glyph(fb, stride, cx - 6, yb, lh, lb);
+        if (who) render_fish_portrait(fb, stride, (float)(cx + 14), (float)cy, 0.62f, who, clock);
+        if (z == DECOR_Z_FRONT) coral_glyph(fb, stride, kx, yb, rgb);
         return;
     }
     if (z == DECOR_Z_BACK)  { leaf_glyph(fb, stride, cx - 8, yb, lh, la); leaf_glyph(fb, stride, cx + 8, yb, lh, lb); }
@@ -467,6 +503,7 @@ void render_setup(const tank_t *t, uint16_t *fb, int stride, float clock) {
         static const char *const zl[DECOR_Z_N] = { "BEHIND", "AMONG", "IN FRONT" };
         static const char *const hint[DECOR_Z_N] = { "THE FISH SWIM IN FRONT OF IT", "THE FISH SWIM THROUGH IT", "THE FISH SWIM BEHIND IT" };
         static const char *const castle_hint[DECOR_Z_N] = { "THE PLANTS GROW IN FRONT OF IT", "", "IT STANDS IN FRONT OF THE PLANTS" };
+        static const char *const coral_hint[DECOR_Z_N] = { "BEHIND THE GRASS AND THE FISH", "IN THE GRASS, THE FISH IN FRONT", "IN FRONT OF EVERYTHING" };
         int z = tank_decor_z(t, s_item), zi = tank_decor_z_index(s_item, z);
         int n = tank_decor_z_count(s_item), bw = n * SETUP_DEPTH_SEG_W, bx = (TANK_W - bw) / 2;   /* the item's own depths */
         text_c(fb, stride, CX, SETUP_DEPTH_Y - 18, 2, C_CAPT, "DEPTH");
@@ -480,11 +517,27 @@ void render_setup(const tank_t *t, uint16_t *fb, int stride, float clock) {
             text_c(fb, stride, sx + SETUP_DEPTH_SEG_W / 2, SETUP_DEPTH_Y + SETUP_DEPTH_TILE_H + 10, 2, i == zi ? C_TEXT : dim(C_CAPT, 45), zl[zi_]);
         }
         render_rect_edge(fb, stride, bx, SETUP_DEPTH_Y, bw, SETUP_DEPTH_H, C_EDGE);
-        text_c(fb, stride, CX, SETUP_DEPTH_HINT_Y, 2, C_CAPT, s_item == 2 ? castle_hint[z] : hint[z]);
+        if (s_item == 3) {
+            /* the coral: no hint line - a COLOR row instead (the fish colour
+               page's swatches, shorter), the pick ringed, the hint under the
+               row's caption */
+            uint32_t rgb = tank_coral_rgb(t);
+            render_rect_blend(fb, stride, 0, SETUP_COL_Y - 22, TANK_W, SETUP_COL_H + 30, C_PANEL, 110);   /* a band the swatches read on, like the colour page's */
+            render_text(fb, stride, SETUP_COL_X + 2, SETUP_COL_Y - 18, 2, C_CAPT, "COLOR");
+            (void)coral_hint;
+            for (int i = 0; i < SETUP_COL_N; i++) {
+                int x = SETUP_COL_X + i * SETUP_COL_PX;
+                bool on = CORAL_PAL[i] == rgb;
+                render_rect(fb, stride, x, SETUP_COL_Y, SETUP_COL_W, SETUP_COL_H, CORAL_PAL[i]);
+                render_rect_edge(fb, stride, x, SETUP_COL_Y, SETUP_COL_W, SETUP_COL_H, on ? C_TEXT : C_DIM);
+                if (on) render_rect_edge(fb, stride, x + 1, SETUP_COL_Y + 1, SETUP_COL_W - 2, SETUP_COL_H - 2, C_TEXT);
+            }
+        } else text_c(fb, stride, CX, SETUP_DEPTH_HINT_Y, 2, C_CAPT, s_item == 2 ? castle_hint[z] : hint[z]);
         float x0 = tank_decor_x(t, s_item) - tank_decor_half_w(s_item) - 10, x1 = tank_decor_x(t, s_item) + tank_decor_half_w(s_item) + 10, top = TANK_H - 16 - 40;
         if (s_item == 0) tank_veg_bed(t, 3, NULL, NULL, &top, NULL);   /* the leaves' reach */
         if (s_item == 2) top = TANK_H - 16 - 146;                      /* the tallest spire */
-        int sy = (int)top - 8; if (sy < SETUP_PLACE_Y) sy = SETUP_PLACE_Y;
+        if (s_item == 3) top = TANK_H - 14 - 92;                       /* the coral's top tip */
+        int sy = (int)top - 8; if (sy < place_y()) sy = place_y();
         render_rect_blend(fb, stride, (int)x0, sy, (int)(x1 - x0), TANK_H - 16 - sy + 4, C_EDGE, 46);
         chevron(fb, stride, (int)((x0 + x1) * 0.5f), TANK_H - 16 - 34, true, C_EDGE);
         text_c(fb, stride, CX, 296, 2, C_CAPT, "DRAG IT LEFT OR RIGHT");

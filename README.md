@@ -239,6 +239,20 @@ fish swim through the arch, tucked behind the jambs as they pass. The
 fish do not know it is there. They find the arch by chance, which is most
 of the charm.
 
+**The coral.** The fourth thing in the shop (100) is a branching coral,
+drawn from a little skeleton of rounded branches on a chunky pixel grid:
+a dark rim on the shaded side, a lit edge toward the light, pale tips,
+and a speckled body in whatever colour you give it. Its placement page
+has the drag, a DEPTH bar of all three choices, and a COLOR row of eight
+swatches; the coral on the floor wears the pick as you tap, and the
+shop's MOVE button brings the page back whenever you want a change. It
+also grows, and slowly, which nothing else in the tank does: you buy a
+young but established fan, the trunk and its two low branches, and over
+about seventeen days, awake or asleep, the rest of the branches reach out
+one by one until the fan is complete. It tops out about a quarter of the
+way up the glass and stays there. Then, over the following week, a crown
+of nine thin tentacles sprouts from the tip and sways on the tank clock.
+
 ![The shop](docs/media/sim-shop.png)
 ![Unlocking the snail](docs/media/sim-shop-modal.png)
 ![The sword plant and the snail on the glass, a +5 just earned](docs/media/sim-tank-shop.png)
@@ -248,6 +262,10 @@ of the charm.
 ![The castle IN FRONT of the grass, a fish in the arch](docs/media/sim-castle.png)
 ![The castle BEHIND the grass](docs/media/sim-castle-behind.png)
 ![Placing the castle: BEHIND or IN FRONT](docs/media/sim-place-castle.png)
+![The coral on the day it is bought, AMONG the grass](docs/media/sim-coral-young.png)
+![The grown coral with its crown of tentacles](docs/media/sim-coral.png)
+![A violet coral IN FRONT of everything](docs/media/sim-coral-front.png)
+![Placing the coral: the COLOR row above the water](docs/media/sim-place-coral.png)
 
 **The light.** Two quick taps on the glass turn the tank light off and on;
 in the dark the fish rest and the palette dims. The settings page has a

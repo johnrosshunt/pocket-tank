@@ -717,6 +717,200 @@ static void draw_castle_front_rect(ctx_t *c, int cx, int x0, int y0, int x1, int
     draw_castle(&cc, cx, 1, true);
 }
 
+/* ---- the coral, procedural (2026-09-23; Strato's coral-single.png: a
+ * branching orange fan in chunky pixel art - rounded branches, a dark red
+ * rim, sunlit yellow tips). Built ONCE as a tone sprite on a 2 px cell grid
+ * (CORAL_CW x CORAL_CH cells): a skeleton of capsules (the trunk and its
+ * branches), each cell classed by its signed distance to the nearest one -
+ * the rim, a lit edge up-left, the tips, and a hashed speckle inside. The
+ * colour is the keeper's (tank_coral_rgb): five tones derived from it and
+ * hazed with the water per row, like the castle's stone. ~60 x 92 px. */
+#define CORAL_CELL 2
+#define CORAL_CW   32
+#define CORAL_CH   46
+#define CORAL_W    (CORAL_CW * CORAL_CELL)
+#define CORAL_H    (CORAL_CH * CORAL_CELL)
+#define CORAL_FY   (TANK_H - 14)             /* the base, a little into the pebbles */
+enum { CO_NONE = 0, CO_RIM, CO_BODY, CO_SHADE, CO_LIT, CO_TIP, CO_N };
+static uint8_t  g_coral_sprite[CORAL_CH][CORAL_CW];
+static int      g_coral_q = -1;               /* the growth step the sprite was built for (CORAL_Q steps) */
+#define CORAL_Q 128                           /* ~5.6 h per step over the 30 days: a rebuild each */
+static int      g_coral_cells;                /* filled cells in the sprite (the selftest) */
+static uint16_t g_coral_row[CO_N][CORAL_H];   /* [tone][row], row 0 = CORAL_FY - CORAL_H */
+static uint32_t g_coral_rgb = 1;              /* what the rows hold (1 = never) */
+static float    g_coral_dim = -1;
+typedef struct { float x0, y0, x1, y1, r; uint8_t tip; float g0, g1; } coral_seg_t;
+/* cell coordinates, x from the left edge, y UP from the base row. g0..g1 is
+ * the segment's GROWTH window (tank_coral_growth, 2026-09-23): absent below
+ * g0, reaching out along its line until g1 - a child branch's window opens
+ * where its parent's closes, so the fan comes in trunk first, low branches,
+ * then the crown over the month. */
+static const coral_seg_t CORAL_SEGS[] = {
+    { 16, 0, 17, 20, 3.0f, 0, 0.00f, 0.30f },   /* the trunk: thick, like the art's */
+    { 17, 20, 18, 33, 2.7f, 0, 0.30f, 0.60f },
+    { 18, 33, 18, 41, 2.3f, 1, 0.60f, 0.85f },  /* its tip */
+    { 16, 7, 6, 15, 2.5f, 0, 0.12f, 0.40f },    /* left, low */
+    { 6, 15, 3, 22, 2.2f, 1, 0.40f, 0.62f },
+    { 17, 12, 26, 18, 2.4f, 0, 0.20f, 0.48f },  /* right, low */
+    { 26, 18, 29, 25, 2.1f, 1, 0.48f, 0.70f },
+    { 17, 20, 9, 28, 2.4f, 0, 0.36f, 0.62f },   /* left, mid */
+    { 9, 28, 7, 35, 2.1f, 1, 0.62f, 0.82f },
+    { 18, 26, 25, 33, 2.3f, 0, 0.45f, 0.72f },  /* right, mid */
+    { 25, 33, 27, 40, 2.0f, 1, 0.72f, 0.92f },
+    { 18, 31, 12, 39, 2.2f, 1, 0.62f, 1.00f },  /* left, high: the last to finish */
+    { 17, 3, 22, 7, 1.9f, 1, 0.05f, 0.20f },    /* a nub */
+};
+#define CORAL_NSEG ((int)(sizeof CORAL_SEGS / sizeof CORAL_SEGS[0]))
+/* signed distance to the skeleton AT growth g, in cells; *tip = within a
+ * lit cap (a finished tip's, or the reaching end of a branch still growing) */
+#define CORAL_Y_SCALE 0.88f                                  /* the fan tops out ~76 px up (Strato: a modest height, never the grass's) */
+#define CORAL_TOP_X   18.0f                                  /* the crown's root: the trunk tip's end, in cells */
+#define CORAL_TOP_Y   (41.0f * CORAL_Y_SCALE)
+static float coral_sd(float px, float py, float g, bool *tip) {
+    float best = 1e9f; *tip = false;
+    if (g > 1) g = 1;
+    float thin = 0.72f + 0.28f * g;                          /* a young coral is slimmer all over */
+    for (int i = 0; i < CORAL_NSEG; i++) {
+        const coral_seg_t *s = &CORAL_SEGS[i];
+        float f = (g - s->g0) / (s->g1 - s->g0);             /* how far along its line it has reached */
+        if (f <= 0) continue;
+        if (f > 1) f = 1;
+        float sy0 = s->y0 * CORAL_Y_SCALE, sy1 = s->y1 * CORAL_Y_SCALE;
+        float x1 = s->x0 + (s->x1 - s->x0) * f, y1 = sy0 + (sy1 - sy0) * f;
+        float r = s->r * thin * (0.75f + 0.25f * f);
+        float dx = x1 - s->x0, dy = y1 - sy0, len2 = dx * dx + dy * dy;
+        float u = len2 > 1e-6f ? ((px - s->x0) * dx + (py - sy0) * dy) / len2 : 0;
+        if (u < 0) u = 0;
+        if (u > 1) u = 1;
+        float ex = px - (s->x0 + dx * u), ey = py - (sy0 + dy * u);
+        float d = sqrtf(ex * ex + ey * ey) - r;
+        if (d < best) best = d;
+        if (s->tip || f < 1) {                               /* the lit cap: the last r + 1 cells of a tip */
+            float tx = px - x1, ty = py - y1;
+            if (tx * tx + ty * ty <= (r + 0.6f) * (r + 0.6f)) *tip = true;
+        }
+    }
+    return best;
+}
+static void coral_build(float g) {
+    static float sd[CORAL_CH][CORAL_CW];
+    static bool  tp[CORAL_CH][CORAL_CW];
+    g_coral_cells = 0;
+    for (int j = 0; j < CORAL_CH; j++)
+        for (int i = 0; i < CORAL_CW; i++) sd[j][i] = coral_sd(i + 0.5f, (CORAL_CH - 1 - j) + 0.5f, g, &tp[j][i]);
+    for (int j = 0; j < CORAL_CH; j++)
+        for (int i = 0; i < CORAL_CW; i++) {
+            float d = sd[j][i];
+            uint8_t t = CO_NONE;
+            if (d < 0) {
+                /* the light comes from the upper left (the art's): an edge cell
+                   with open water above or to its left is LIT, one with open
+                   water below or to its right is the dark rim - the outline
+                   that keeps the branches apart */
+                bool out_l = i == 0 || sd[j][i - 1] >= 0, out_u = j == 0 || sd[j - 1][i] >= 0;
+                bool out_r = i == CORAL_CW - 1 || sd[j][i + 1] >= 0, out_d = j == CORAL_CH - 1 || sd[j + 1][i] >= 0;
+                bool edge = out_l || out_u || out_r || out_d;
+                if (tp[j][i]) t = (out_r || out_d) && !(out_l || out_u) ? CO_RIM : CO_TIP;
+                else if (edge) t = (out_r || out_d) ? CO_RIM : CO_LIT;
+                else {
+                    uint32_t h = chash(i, j) % 100;
+                    t = h < 22 ? CO_SHADE : h < 28 ? CO_LIT : CO_BODY;
+                }
+            }
+            g_coral_sprite[j][i] = t;
+            g_coral_cells += t != CO_NONE;
+        }
+}
+int render_coral_cells(float growth) {                       /* the selftest: how much coral there is at a growth */
+    coral_build(growth); g_coral_q = -1;
+    return g_coral_cells;
+}
+static void coral_tint_fill(uint32_t rgb, float dim) {
+    if (g_coral_rgb == rgb && g_coral_dim == dim) return;
+    uint32_t tone[CO_N];
+    tone[CO_NONE]  = 0;
+    tone[CO_RIM]   = mix(rgb, 0x30060e, 0.58f);
+    tone[CO_BODY]  = rgb;
+    tone[CO_SHADE] = mix(rgb, 0x000000, 0.24f);
+    tone[CO_LIT]   = mix(rgb, 0xfff0b0, 0.36f);
+    tone[CO_TIP]   = mix(rgb, 0xffe8a0, 0.58f);
+    for (int r = 0; r < CORAL_H; r++) {
+        int y = CORAL_FY - CORAL_H + r;
+        uint32_t w = water_rgb(y < 0 ? 0 : y >= TANK_H ? TANK_H - 1 : y);
+        for (int k = 1; k < CO_N; k++) g_coral_row[k][r] = rgb565(mix(w, tone[k], k == CO_TIP ? 0.94f : 0.90f), dim);   /* a light haze: the art's colour stays saturated */
+    }
+    g_coral_rgb = rgb; g_coral_dim = dim;
+}
+/* the crown (2026-09-23, Strato: "after it's fully grown it should sprout a
+ * ring of delicate tentacles out of the top"): CORAL_TENT one-pixel
+ * filaments fanning up and out from the trunk's tip once growth passes 1,
+ * reaching CORAL_TENT_L px at CORAL_FULL, each swaying on its own phase with
+ * the tank clock and ending in a bright bead. Drawn every frame over the
+ * body (dynamic: the caller's rect covers the vignette), so the crown moves
+ * while the fan stands still. Returns its bounding box through the pointers. */
+#define CORAL_TENT   9
+#define CORAL_TENT_L 15.0f
+static void draw_coral_crown(ctx_t *c, int cx, uint32_t rgb, float growth, float clock,
+                             int *bx0, int *by0, int *bx1, int *by1) {
+    float phase = (growth - 1.0f) / (CORAL_FULL - 1.0f);
+    *bx0 = *by0 = 1 << 20; *bx1 = *by1 = -1;
+    if (phase <= 0) return;
+    if (phase > 1) phase = 1;
+    float ox = cx - CORAL_W / 2 + CORAL_TOP_X * CORAL_CELL + 1, oy = CORAL_FY - CORAL_TOP_Y * CORAL_CELL - 1;
+    uint32_t pale = mix(rgb, 0xffffff, 0.55f), bead = mix(rgb, 0xffffff, 0.80f);
+    float len = CORAL_TENT_L * (0.35f + 0.65f * phase);
+    for (int k = 0; k < CORAL_TENT; k++) {
+        float a = -3.14159f * (0.16f + 0.68f * k / (CORAL_TENT - 1));          /* a fan from ~29 deg left of up to 29 deg right, past the horizontal */
+        float sway = 0.22f * fast_sin(clock * 1.3f + k * 0.9f);
+        float lx = ox, ly = oy;
+        int n = (int)(len + 0.5f);
+        for (int i = 1; i <= n; i++) {
+            float s = (float)i / n;
+            float ang = a + sway * s + (k - (CORAL_TENT - 1) * 0.5f) * 0.05f * s;   /* the outer ones curl outward */
+            float x = ox + cosf(ang) * len * s, y = oy + sinf(ang) * len * s;
+            int ix = (int)(x + 0.5f), iy = (int)(y + 0.5f);
+            if (ix == (int)(lx + 0.5f) && iy == (int)(ly + 0.5f)) continue;
+            px_blend(c, ix, iy, i == n ? bead : pale, i == n ? 255 : 190);
+            if (ix < *bx0) *bx0 = ix;
+            if (ix > *bx1) *bx1 = ix;
+            if (iy < *by0) *by0 = iy;
+            if (iy > *by1) *by1 = iy;
+            lx = x; ly = y;
+        }
+    }
+    if (*bx1 >= *bx0) { *bx0 -= 1; *by0 -= 1; *bx1 += 1; *by1 += 1; }
+}
+/* the coral at centre x (its base on the floor), in the keeper's colour.
+ * final: vignetted here and untagged (the scene-cache path); otherwise the
+ * frame's own sweep does it */
+static void draw_coral(ctx_t *c, int cx, uint32_t rgb, float growth, bool final) {
+    if (growth > 1) growth = 1;
+    int q = (int)(growth * (CORAL_Q - 0.01f));
+    if (q != g_coral_q) { coral_build(growth); g_coral_q = q; }
+    coral_tint_fill(rgb, c->dim);
+    int x0 = cx - CORAL_W / 2, y0 = CORAL_FY - CORAL_H;
+    for (int j = 0; j < CORAL_CH; j++)
+        for (int i = 0; i < CORAL_CW; i++) {
+            uint8_t t = g_coral_sprite[j][i];
+            if (!t) continue;
+            for (int dy = 0; dy < CORAL_CELL; dy++) {
+                int y = y0 + j * CORAL_CELL + dy;
+                uint16_t v = g_coral_row[t][j * CORAL_CELL + dy];
+                for (int dx = 0; dx < CORAL_CELL; dx++) {
+                    int x = x0 + i * CORAL_CELL + dx;
+                    if (!CTX_IN(c, x, y)) continue;
+                    uint16_t *p = &CTX_PX(c, x, y);
+                    *p = v;
+                    if (final) {
+                        int a = g_vig ? g_vig[y * TANK_W + x] : vig_alpha(x, y);
+                        if (a) px_darken(p, a);
+                        if (g_dirty) g_dirty[y * DIRTY_WORDS_PER_ROW + (x >> 5)] &= ~(1u << (x & 31));
+                    }
+                }
+            }
+        }
+}
+
 /* ---- the snail, procedural (2026-09-16; Strato: "explore doing the same
  * for the snail so the aesthetic matches") ----
  * Drawn the castle's way in place of the two sprites: a little geometry with
@@ -887,6 +1081,15 @@ static bool castle_state(const tank_t *t, int *cx, int *z, bool *placing) {
     return true;
 }
 static int g_scene_castle_x = -2, g_scene_castle_z = -1;   /* what the baked scene holds (-1 = no castle) */
+/* the coral likewise (2026-09-23): BEHIND it is baked into the scene; AMONG
+ * and IN FRONT it is drawn every frame (a 60 x 92 sprite - cheap) */
+static bool coral_state(const tank_t *t, int *cx, int *z, bool *placing) {
+    if (!(t->sd_unlocks & SD_ITEM_CORAL)) { *cx = -1; *z = DECOR_Z_MIDDLE; *placing = false; return false; }
+    *cx = (int)tank_decor_x(t, 3); *z = tank_decor_z(t, 3);
+    *placing = setup_is_place() && setup_item() == 3;
+    return true;
+}
+static int g_scene_coral_x = -2, g_scene_coral_z = -1, g_scene_coral_q = -1; static uint32_t g_scene_coral_rgb;
 
 static void draw_scene(const tank_t *t, uint16_t *fb, int stride, float dim) {
     ctx_t c = ctx_full(fb, stride, dim);
@@ -915,6 +1118,7 @@ static void draw_scene(const tank_t *t, uint16_t *fb, int stride, float dim) {
     float grow = 1.0f + 0.06f * popcount32(t->tank_ms_bits);
     fill_ellipse(&c, t->reef_x, TANK_H - 16, 34 * grow, 10 + 2 * (grow - 1) * 10, 0x123028, 255);
     { int cx, z; bool placing; if (castle_state(t, &cx, &z, &placing)) draw_castle(&c, cx, 0, false); }   /* uncached: always drawn here */
+    { int cx, z; bool placing; if (coral_state(t, &cx, &z, &placing) && z == DECOR_Z_BACK) draw_coral(&c, cx, tank_coral_rgb(t), tank_coral_growth(t), false); }
 }
 
 
@@ -970,6 +1174,7 @@ static void bake_scene(const tank_t *t, uint16_t *sc, float dim) {
         span_final(&c, (int)(t->reef_x - rx * w), (int)(t->reef_x + rx * w), y, &s, 255);
     }
     if (g_scene_castle_x >= 0) draw_castle(&c, g_scene_castle_x, 0, true);   /* the castle, unless it is being dragged */
+    if (g_scene_coral_x >= 0 && g_scene_coral_z == DECOR_Z_BACK) draw_coral(&c, g_scene_coral_x, g_scene_coral_rgb, (g_scene_coral_q + 0.5f) / CORAL_Q, true);   /* the coral BEHIND, likewise */
 }
 
 void render_tank(const tank_t *t, uint16_t *fb, int stride) {
@@ -986,10 +1191,17 @@ void render_tank(const tank_t *t, uint16_t *fb, int stride) {
 
     int ccx, cz; bool placing; castle_state(t, &ccx, &cz, &placing);
     int scene_cx = placing ? -1 : ccx;
+    int kx, kz; bool kplacing; coral_state(t, &kx, &kz, &kplacing);
+    uint32_t krgb = tank_coral_rgb(t);
+    float kg = tank_coral_growth(t);
+    int kq = (int)(kg * (CORAL_Q - 0.01f));
+    int scene_kx = kplacing ? -1 : kx;
     g_veg_mask_cx = ccx >= 0 && cz == DECOR_Z_FRONT ? ccx : -1;
     if (cached) {
-        if (g_scene_dim != dim || g_scene_ms != t->tank_ms_bits || g_scene_castle_x != scene_cx || g_scene_castle_z != cz) {
+        if (g_scene_dim != dim || g_scene_ms != t->tank_ms_bits || g_scene_castle_x != scene_cx || g_scene_castle_z != cz
+            || g_scene_coral_x != scene_kx || g_scene_coral_z != kz || g_scene_coral_rgb != krgb || g_scene_coral_q != kq) {
             g_scene_castle_x = scene_cx; g_scene_castle_z = cz;
+            g_scene_coral_x = scene_kx; g_scene_coral_z = kz; g_scene_coral_rgb = krgb; g_scene_coral_q = kq;
             /* rebuild the static scene with the vignette baked in (the
                per-frame pass then only re-darkens dynamic patches). The
                reef's lushness comes from the tank milestones, so a new
@@ -1003,7 +1215,11 @@ void render_tank(const tank_t *t, uint16_t *fb, int stride) {
             memcpy(fb, g_scene, TANK_W * TANK_H * sizeof(uint16_t));
         g_primed_fb = NULL;
         if (placing) draw_castle(&c, ccx, 0, true);      /* dragged: drawn live over the castle-less scene */
+        if (kplacing && kz == DECOR_Z_BACK) draw_coral(&c, kx, krgb, kg, true);   /* the coral dragged BEHIND: live too */
     } else draw_scene(t, fb, stride, dim);
+#define CORAL_CROWN() do { int qx0, qy0, qx1, qy1; draw_coral_crown(&c, kx, krgb, kg, t->clock, &qx0, &qy0, &qx1, &qy1); \
+        if (qx1 >= qx0) DYN_RECT(qx0, qy0, qx1, qy1); } while (0)
+    if (kx >= 0 && kz == DECOR_Z_BACK) CORAL_CROWN();   /* the crown BEHIND: over the baked fan, under the grass */
     PROF_ADD(0, p0);
 
     PROF_ADD(1, p0);   /* stage 1 (light shafts) retired 2026-09-01 */
@@ -1018,6 +1234,7 @@ void render_tank(const tank_t *t, uint16_t *fb, int stride) {
     for (int b = 0; b < tank_veg_beds(t); b++)
         if (bed_z(t, b) == DECOR_Z_MIDDLE) draw_veg(&c, t, b, veg_seed[b], 0, cached);
         /* no DYN_RECT: with the scene cache each frond span vignettes itself */
+    if (kx >= 0 && kz == DECOR_Z_MIDDLE) { draw_coral(&c, kx, krgb, kg, cached); CORAL_CROWN(); }   /* the coral AMONG: over the back fronds, under the fish */
     PROF_ADD(2, p0);
     /* the airstone the column rises from, on the floor where the keeper put
        it (setup): three stones and a glint - dynamic, since it can move */
@@ -1072,6 +1289,7 @@ void render_tank(const tank_t *t, uint16_t *fb, int stride) {
         if (bed_z(t, b) == DECOR_Z_MIDDLE) draw_veg(&c, t, b, veg_seed[b], 1, cached);
     for (int b = 0; b < tank_veg_beds(t); b++)          /* a FRONT-layer piece last: over the grass and the fish */
         if (bed_z(t, b) == DECOR_Z_FRONT) draw_veg(&c, t, b, veg_seed[b], -1, cached);
+    if (kx >= 0 && kz == DECOR_Z_FRONT) { draw_coral(&c, kx, krgb, kg, cached); CORAL_CROWN(); }   /* the coral IN FRONT: over everything */
     PROF_ADD(4, p0);
     /* porthole vignette: darken corners toward AMOLED black. With a scene
        cache the full-frame pass is baked into the scene and only the dynamic
@@ -2032,7 +2250,26 @@ void render_notice(const tank_t *t, uint16_t *fb, int stride, int kind, int fish
 #define SHP_EARN_MODAL_H 224
 static int  g_shp_modal = -1;        /* the item whose modal is up, or -1 */
 static bool g_shp_earn;              /* the HOW TO EARN modal is up */
-static const icon_t *shop_icon(int item) { return item == 0 ? &icon_shop_plant : item == 1 ? &icon_shop_snail : &icon_shop_castle; }
+static const icon_t *shop_icon(int item) { return item == 0 ? &icon_shop_plant : item == 1 ? &icon_shop_snail : item == 2 ? &icon_shop_castle : &icon_shop_coral; }
+/* pages (2026-09-23, the fourth item): SHP_PER_PAGE rows fit between the
+ * coin and the foot buttons once the filler caption went (HOW TO EARN says
+ * the same). With more items than a page holds, arrows at the header's
+ * right flip through the pages; with one page nothing shows. */
+#define SHP_PER_PAGE 4
+#define SHP_PAGES    ((SD_ITEM_COUNT + SHP_PER_PAGE - 1) / SHP_PER_PAGE)
+#define SHP_ARROW_W  36
+#define SHP_ARROW_H  32
+#define SHP_ARROW_Y  (SHP_COIN_Y + 16)
+#define SHP_ARROW_X1 (TANK_W - 28 - SHP_ARROW_W)          /* next */
+#define SHP_ARROW_X0 (SHP_ARROW_X1 - SHP_ARROW_W - 8)     /* previous */
+static int g_shp_page;
+static void shop_arrow(ctx_t *c, int x, int y, bool right, uint32_t rgb) {   /* a chevron in a button */
+    button(c, x, y, SHP_ARROW_W, SHP_ARROW_H, 0x1c2f36, rgb, "", 2);
+    int cx = x + SHP_ARROW_W / 2, cy = y + SHP_ARROW_H / 2;
+    for (int i = 0; i < 7; i++) { int w = 7 - i;
+        rect_fill(c, right ? cx - 3 : cx + 3 - w, cy - 6 + i, w, 1, rgb);
+        rect_fill(c, right ? cx - 3 : cx + 3 - w, cy + 6 - i, w, 1, rgb); }
+}
 static void price_tag(ctx_t *c, int x, int y, int price, uint32_t rgb) {   /* the small coin + the number */
     blit_icon(c, x, y - 1, &icon_shop_sand_dollar_16, 255);
     char n[16]; snprintf(n, sizeof n, "%d", price);
@@ -2046,9 +2283,13 @@ void render_shop(const tank_t *t, uint16_t *fb, int stride) {
     char bal[16]; snprintf(bal, sizeof bal, "%d", (int)t->sd_balance);
     draw_text(&c, 112, SHP_COIN_Y + 28, 4, 0xffffff, bal);
     for (int x = 24; x < TANK_W - 24; x++) px_blend(&c, x, SHP_ROW_Y0 - 10, MSP_DIM, 200);
-    for (int i = 0; i < SD_ITEM_COUNT; i++) {
+    if (SHP_PAGES > 1) {
+        shop_arrow(&c, SHP_ARROW_X0, SHP_ARROW_Y, false, g_shp_page > 0 ? MSP_TEAL : MSP_DIM);
+        shop_arrow(&c, SHP_ARROW_X1, SHP_ARROW_Y, true, g_shp_page < SHP_PAGES - 1 ? MSP_TEAL : MSP_DIM);
+    }
+    for (int i = g_shp_page * SHP_PER_PAGE; i < SD_ITEM_COUNT && i < (g_shp_page + 1) * SHP_PER_PAGE; i++) {
         const sd_item_t *it = &SD_ITEMS[i];
-        int top = SHP_ROW_Y0 + i * SHP_ROW_DY;
+        int top = SHP_ROW_Y0 + (i - g_shp_page * SHP_PER_PAGE) * SHP_ROW_DY;
         bool owned = (t->sd_unlocks & it->bit) != 0, can = t->sd_balance >= it->price;
         if (owned) blit_icon(&c, SHP_COIN_X, top, shop_icon(i), 255); else blit_icon_locked(&c, SHP_COIN_X, top, shop_icon(i));
         draw_text(&c, 76, top + 2, 2, 0xffffff, it->name);
@@ -2059,8 +2300,6 @@ void render_shop(const tank_t *t, uint16_t *fb, int stride) {
                         draw_text(&c, SHP_BTN_X + (SHP_BTN_W - text_w("UNLOCK", 2)) / 2, top + (SHP_BTN_H - 14) / 2, 2, MSP_INK, "UNLOCK"); }
         else           button(&c, SHP_BTN_X, top, SHP_BTN_W, SHP_BTN_H, 0x1c2f36, MSP_DIM, "UNLOCK", 2);
     }
-    draw_text(&c, (TANK_W - text_w("EARN THEM BY CARING FOR", 2)) / 2, SHP_ROW_Y0 + (SD_ITEM_COUNT - 1) * SHP_ROW_DY + SHP_BTN_H + 12, 2, 0x3f6a72, "EARN THEM BY CARING FOR");
-    draw_text(&c, (TANK_W - text_w("THE TANK AND THE FISH", 2)) / 2, SHP_ROW_Y0 + (SD_ITEM_COUNT - 1) * SHP_ROW_DY + SHP_BTN_H + 32, 2, 0x3f6a72, "THE TANK AND THE FISH");
     button(&c, SHP_EARN_X, MSP_CLOSE_Y, SHP_EARN_W, MSP_CLOSE_H, 0x1c2f36, MSP_TEAL, "HOW TO EARN", 2);
     button(&c, MSP_CLOSE_X, MSP_CLOSE_Y, MSP_CLOSE_W, MSP_CLOSE_H, 0x1c2f36, MSP_TEAL, "CLOSE", 2);
     if (g_shp_modal < 0 && !g_shp_earn) return;
@@ -2116,13 +2355,18 @@ int render_shop_tap(const tank_t *t, float x, float y) {
     }
     if (x >= MSP_CLOSE_X - 8 && y >= MSP_CLOSE_Y - 4) return SHOP_TAP_CLOSE;
     if (x < SHP_EARN_X + SHP_EARN_W + 8 && y >= MSP_CLOSE_Y - 4) { g_shp_earn = true; return SHOP_TAP_KEPT; }
-    for (int i = 0; i < SD_ITEM_COUNT; i++) {
-        int top = SHP_ROW_Y0 + i * SHP_ROW_DY;
+    if (SHP_PAGES > 1 && y < SHP_ROW_Y0 - 10 && x >= SHP_ARROW_X0 - 8) {   /* the page arrows, in the header band */
+        if (x < SHP_ARROW_X1 - 4) { if (g_shp_page > 0) g_shp_page--; }
+        else if (g_shp_page < SHP_PAGES - 1) g_shp_page++;
+        return SHOP_TAP_KEPT;
+    }
+    for (int i = g_shp_page * SHP_PER_PAGE; i < SD_ITEM_COUNT && i < (g_shp_page + 1) * SHP_PER_PAGE; i++) {
+        int top = SHP_ROW_Y0 + (i - g_shp_page * SHP_PER_PAGE) * SHP_ROW_DY;
         if (x >= 20 && y >= top - 8 && y < top + SHP_ROW_DY - 8) { g_shp_modal = i; return SHOP_TAP_KEPT; }
     }
     return SHOP_TAP_NONE;
 }
-void render_shop_leave(void) { g_shp_modal = -1; g_shp_earn = false; }
+void render_shop_leave(void) { g_shp_modal = -1; g_shp_earn = false; g_shp_page = 0; }
 
 /* the toast: "+N" by a coin, top centre, for TOAST_S on the tank clock */
 #define TOAST_S 2.5f

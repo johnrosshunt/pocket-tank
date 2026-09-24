@@ -33,6 +33,7 @@ extern const icon_t icon_ms_first_trimming;
 extern const icon_t icon_ms_sand_dollar;
 extern const icon_t icon_ms_tank_changed_someone;
 extern const icon_t icon_shop_castle;
+extern const icon_t icon_shop_coral;
 extern const icon_t icon_shop_plant;
 extern const icon_t icon_shop_sand_dollar_16;
 extern const icon_t icon_shop_sand_dollar_64;
