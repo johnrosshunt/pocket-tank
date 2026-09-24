@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#f8f8f8">
 <title>Install Pocket Tank</title>
-<meta name="description" content="Flash Pocket Tank onto a Waveshare ESP32-S3-Touch-AMOLED-1.8 straight from your browser. No tools to install.">
+<meta name="description" content="Install Pocket Tank on a Waveshare ESP32-S3-Touch-AMOLED-1.8 from your browser. Nothing to download.">
 <link rel="canonical" href="https://stratobuilds.com/pocket-tank-installer/">
 <link rel="icon" href="https://stratobuilds.com/wp-content/uploads/2025/06/strato-builds-favicon-64.png" sizes="64x64">
 <link rel="apple-touch-icon" href="https://stratobuilds.com/wp-content/uploads/2025/06/strato-builds-favicon-64.png">
@@ -14,14 +14,14 @@
 <meta property="og:site_name" content="StratoBuilds">
 <meta property="og:url" content="https://stratobuilds.com/pocket-tank-installer/">
 <meta property="og:title" content="Install Pocket Tank from your browser">
-<meta property="og:description" content="A tiny language model keeps a fish tank alive on an ESP32-S3. Plug the board in, click Install, done. No toolchain, no terminal.">
+<meta property="og:description" content="A tiny AI runs a fish tank on an ESP32-S3 board. Plug it in, click Install, done. Nothing to download.">
 <meta property="og:image" content="https://stratobuilds.com/wp-content/uploads/2026/09/pt-installer.jpg">
 <meta property="og:image:width" content="1280">
 <meta property="og:image:height" content="720">
 <meta property="og:image:alt" content="Pocket Tank running on the Waveshare ESP32-S3 AMOLED board">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Install Pocket Tank from your browser">
-<meta name="twitter:description" content="A tiny language model keeps a fish tank alive on an ESP32-S3. Plug the board in, click Install, done. No toolchain, no terminal.">
+<meta name="twitter:description" content="A tiny AI runs a fish tank on an ESP32-S3 board. Plug it in, click Install, done. Nothing to download.">
 <meta name="twitter:image" content="https://stratobuilds.com/wp-content/uploads/2026/09/pt-installer.jpg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -57,10 +57,14 @@
           color: var(--ink); background: var(--pill); border-radius: 10px; padding: 8px 10px; white-space: nowrap; }
   .dark .pill { color: #fff; background: var(--pill-dark); }
   ol { margin: 0 0 20px; padding: 0; list-style: none; counter-reset: step; }
-  ol li { position: relative; padding: 4px 0 4px 44px; counter-increment: step; margin-bottom: 8px; }
-  ol li::before { content: counter(step); position: absolute; left: 0; top: 4px; width: 30px; height: 30px;
+  ol > li { position: relative; padding: 4px 0 4px 44px; counter-increment: step; margin-bottom: 8px; }
+  ol > li::before { content: counter(step); position: absolute; left: 0; top: 4px; width: 30px; height: 30px;
                   border-radius: 10px; background: var(--ink); color: #fff; font: 500 12px/30px var(--mono); text-align: center; }
-  ol li b, p b { color: var(--ink); font-weight: 500; }
+  li b, p b { color: var(--ink); font-weight: 500; }
+  ol ul { margin: 8px 0 0; padding-left: 18px; }
+  ol ul li { margin-bottom: 4px; }
+  ul.how { margin: 0; padding-left: 18px; }
+  ul.how li { margin-bottom: 6px; }
   a { color: var(--ink); text-decoration: underline; text-decoration-color: rgba(10, 10, 10, .3); text-underline-offset: 3px; }
   a:hover { text-decoration-color: var(--ink); }
   .dark a { color: #fff; text-decoration-color: rgba(255, 255, 255, .4); }
@@ -74,7 +78,7 @@
     border: 0; border-radius: 10px; padding: 20px 30px; cursor: pointer; transition: filter .15s;
   }
   esp-web-install-button button:hover { filter: brightness(.9); }
-  /* the "start over" trigger: the same slot, the dark card's colour, smaller */
+  /* the "start over" trigger: the same slot, the dark card's color, smaller */
   esp-web-install-button.fresh button { background: var(--dark); padding: 14px 20px; }
   esp-web-install-button [slot="unsupported"], esp-web-install-button [slot="not-allowed"] {
     display: inline-block; font-size: 14px; font-weight: 500; color: var(--ink); background: rgba(255, 0, 0, .08);
@@ -110,82 +114,98 @@
 
   <section class="card dark">
     <h1>Install Pocket Tank</h1>
-    <p class="lede">A tiny language model governs fish decisions on an ESP32-S3. Put it on your board from this page, and bring a tank you already keep up to date the same way.</p>
+    <p class="lede">A tiny fish tank where a small AI decides what the fish do, all on the board. Install it from this page. Update it the same way.</p>
   </section>
 
   <section class="card">
     <h2>Install</h2>
     <ol>
-      <li><b>Plug the board into this computer</b> with a USB-C cable that carries data (some charge-only cables don't). The board's own USB-C port goes straight to the chip, no adapter needed.</li>
-      <li><b>Click the button.</b> Your browser asks which port to use: pick <code>USB JTAG/serial debug unit</code> (on Linux it may just say <code>ttyACM0</code>).</li>
-      <li><b>Wait for the bar to fill.</b> About {{TOTAL_MB}} MB goes over, which takes a minute or two. When it says <em>Installation complete</em>, the board reboots on its own: a new board into a fresh tank with two fry, a tank you already keep into the same tank, carrying on.</li>
+      <li><b>Plug the board into your computer.</b> Use a USB-C cable that carries data. Some cables only charge.</li>
+      <li><b>Click Install.</b> Pick <code>USB JTAG/serial debug unit</code> from the list. On Linux it may say <code>ttyACM0</code>.</li>
+      <li><b>Wait a minute or two.</b> When it says <em>Installation complete</em>, the board restarts by itself.
+        <ul>
+          <li><b>New board:</b> you get a fresh tank with two baby fish.</li>
+          <li><b>Already have a tank:</b> it comes back just as you left it.</li>
+        </ul>
+      </li>
     </ol>
     <div class="install">
       <esp-web-install-button manifest="{{MANIFEST}}">
         <button slot="activate">Install Pocket Tank</button>
-        <span slot="unsupported">This browser can't talk to USB devices. Use Chrome or Edge on a desktop or laptop.</span>
-        <span slot="not-allowed">Browser flashing only works on an HTTPS page (or localhost).</span>
+        <span slot="unsupported">This browser can't talk to USB devices. Use Chrome or Edge on a computer.</span>
+        <span slot="not-allowed">Open this page with https:// to install.</span>
       </esp-web-install-button>
-      <span class="meta">Chrome or Edge, desktop &middot; firmware <code data-version>{{VERSION}}</code></span>
+      <span class="meta">Chrome or Edge on a computer &middot; version <code data-version>{{VERSION}}</code></span>
     </div>
-    <p><b>Updating a tank you already keep?</b> Same button, nothing else to do. The installer never erases the board: it rewrites the app and the model, and the tank's save lives in a part of the flash it does not touch. Your fish, their names and colors, their trust and history, the badges, the sand dollars and everything you placed all stay. Every version since the first one loads the saves of every earlier one.</p>
-    <p class="fine">The dialog says <em>Install</em> either way, and shows the version it is about to write. If your tank is asleep (dark screen), press <kbd>PWR</kbd> first so the port shows up.</p>
+    <p><b>Updating?</b> Use the same button. It never erases your tank: your fish, their names, badges, sand dollars and decorations all stay.</p>
+    <p class="fine">The pop-up says <em>Install</em> even when you're updating. That's normal. If the screen is dark, the tank is asleep: press <kbd>PWR</kbd> firmly to wake it first, or it won't show up in the list.</p>
   </section>
 
   <section class="card">
     <h2>Start over</h2>
-    <p>You don't need this page for that: hold <kbd>BOOT</kbd> and tap the glass, and the tank asks <em>Reset tank?</em>. Answer YES for two new fry.</p>
-    <p>If the board won't get that far, or you want the flash wiped clean before installing, this button asks first, then erases everything and installs fresh:</p>
+    <p>To reset your tank, you don't need this page. Hold <kbd>BOOT</kbd>, tap the screen, and answer YES. You get two new baby fish.</p>
+    <p>Board not starting, or want a clean wipe? This button erases everything, then installs fresh. <b>Your tank will be gone.</b></p>
     <div class="install">
       <esp-web-install-button class="fresh" manifest="{{MANIFEST_ERASE}}">
         <button slot="activate">Erase the board and install fresh</button>
-        <span slot="unsupported">This browser can't talk to USB devices. Use Chrome or Edge on a desktop or laptop.</span>
-        <span slot="not-allowed">Browser flashing only works on an HTTPS page (or localhost).</span>
+        <span slot="unsupported">This browser can't talk to USB devices. Use Chrome or Edge on a computer.</span>
+        <span slot="not-allowed">Open this page with https:// to install.</span>
       </esp-web-install-button>
     </div>
-    <p class="fine">It shows an <em>Erase device</em> checkbox: tick it. Left unticked it installs like the button above.</p>
+    <p class="fine">In the pop-up, tick <em>Erase device</em>. If you leave it unticked, it just installs like the red button.</p>
   </section>
 
   <section class="card">
-    <h2>Supported hardware</h2>
+    <h2>Which board?</h2>
     <p><span class="pill">Supported</span></p>
-    <p><b>Waveshare ESP32-S3-Touch-AMOLED-1.8</b> (revision V1 and V2; the firmware tells them apart at boot). ESP32-S3 with 16 MB flash and 8 MB PSRAM, 1.8" 368&times;448 AMOLED, capacitive touch, IMU, RTC, battery charger. Around $35 with the screen and a battery.</p>
-    <p class="fine">The installer checks that the connected chip is an ESP32-S3. It can't tell which board the chip sits on, so on any other ESP32-S3 board it will flash fine and then show nothing: the display and touch drivers are for this panel. More boards later.</p>
+    <p><b>Waveshare ESP32-S3-Touch-AMOLED-1.8</b>, version V1 or V2. About $35 with the screen and a battery.</p>
+    <p class="fine">Other boards won't work yet. The installer may still run on them, but the screen will stay blank.</p>
   </section>
 
   <section class="card">
-    <h2>If something's off</h2>
+    <h2>Having trouble?</h2>
     <details>
-      <summary>The port list is empty, or the board isn't in it</summary>
-      <p>A tank that is already running Pocket Tank may be <b>asleep</b> (dark screen): its USB port disappears while it sleeps. Press <kbd>PWR</kbd> once to wake it, then try again.</p>
-      <p>Otherwise, hold <kbd>BOOT</kbd> while you plug the cable in (or while tapping <kbd>RESET</kbd>). That forces the chip into its download mode, which always shows up as a port.</p>
-      <p>Try another cable and a port directly on the computer rather than a hub.</p>
+      <summary>My board isn't in the list</summary>
+      <p>If the screen is dark, the tank is asleep. Press <kbd>PWR</kbd> firmly to wake it, then try again.</p>
+      <p>Still missing? Hold <kbd>BOOT</kbd> while you plug in the cable. That always makes it show up.</p>
+      <p>Also try another cable, and plug straight into the computer, not a hub.</p>
     </details>
     <details>
-      <summary>"Failed to initialize" or the install stops partway</summary>
-      <p>Close anything else that may hold the port (a serial monitor, another tab with this page), unplug, replug, and click Install again. If it fails at the same place twice, hold <kbd>BOOT</kbd> while plugging in and retry; a tank you keep is still on the board, the install only ever rewrites the app and the model.</p>
+      <summary>The install fails or stops partway</summary>
+      <p>Close anything else using the board, like a serial monitor or this page in another tab. Unplug, plug back in, and click Install again.</p>
+      <p>Still failing? Hold <kbd>BOOT</kbd> while you plug in, then try again. Your tank is safe either way.</p>
     </details>
     <details>
-      <summary>Linux: permission denied on the port</summary>
-      <p>Add yourself to the group that owns <code>/dev/ttyACM0</code> (usually <code>dialout</code> or <code>uucp</code>), then log out and back in: <code>sudo usermod -aG dialout $USER</code></p>
+      <summary>Linux: "permission denied"</summary>
+      <p>Run <code>sudo usermod -aG dialout $USER</code>, then log out and back in. (On some systems the group is <code>uucp</code>.)</p>
     </details>
     <details>
-      <summary>A backup of the tank before updating (optional, needs a terminal)</summary>
-      <p>The update keeps the tank on its own, but if you like a copy first: with <code>esptool</code> installed (<code>pip install esptool</code>) and the board awake, <code>esptool.py --chip esp32s3 read_flash 0x9000 0x6000 my-tank.bin</code> saves the whole save area to a file, and <code>esptool.py --chip esp32s3 write_flash 0x9000 my-tank.bin</code> puts it back.</p>
+      <summary>Windows: it shows up but won't connect</summary>
+      <p>Windows 10 and 11 already have the driver. If Device Manager shows a warning on the board, install Espressif's USB driver or try another USB port.</p>
     </details>
     <details>
-      <summary>Windows: the port shows but the install fails to connect</summary>
-      <p>Windows 10 and 11 have the driver built in. If the device appears with a warning in Device Manager, install Espressif's USB driver or use a different USB port, then retry.</p>
+      <summary>Back up my tank first (optional, uses a terminal)</summary>
+      <p>Updates keep your tank, but if you'd like a copy: install esptool (<code>pip install esptool</code>) and wake the tank. To save it: <code>esptool.py --chip esp32s3 read_flash 0x9000 0x6000 my-tank.bin</code>. To put it back: <code>esptool.py --chip esp32s3 write_flash 0x9000 my-tank.bin</code></p>
     </details>
     <details>
-      <summary>What exactly gets written</summary>
-      <p>Four pieces at fixed places in the chip's 16 MB flash: the bootloader, the partition table, the app, and the 7.5 MB four-bit model. The <code>manifest.json</code> next to this page lists them. The tank's save (the fish, the settings) sits in a separate 24 KB area at <code>0x9000</code> that none of the four cover, which is why an update keeps it; only the erase button above clears it. Everything runs on the chip; nothing is sent anywhere.</p>
+      <summary>What gets installed?</summary>
+      <p>The app, the 7.5 MB AI model, and two small startup files. Your tank's save sits in a separate spot the installer never touches. Only the erase button clears it.</p>
+      <p>Everything runs on the board. Nothing is sent anywhere.</p>
     </details>
   </section>
 
   <section class="card lavender">
-    <h2>After it boots</h2>
-    <p>Two fry appear in a fresh tank. Tap the water to feed them, rest a finger on the glass and they'll come to see you, drag across the glass to wipe algae, swipe sideways through the grass to trim it. A short press on <kbd>PWR</kbd> puts the tank to sleep and another wakes it (the tank decides how deep it sleeps); hold <kbd>BOOT</kbd> and tap the glass to reset the tank.</p>
+    <h2>After it starts</h2>
+    <p>A new tank opens with a quick setup: place the bubbles, then name your two fish and pick their colors. Then:</p>
+    <ul class="how">
+      <li><b>Feed:</b> tap the water.</li>
+      <li><b>Say hi:</b> hold a finger on the glass and they'll come over.</li>
+      <li><b>Clean:</b> drag across the glass to wipe off algae.</li>
+      <li><b>Trim:</b> swipe sideways through the grass.</li>
+      <li><b>Light:</b> double-tap the glass.</li>
+      <li><b>Sleep:</b> press <kbd>PWR</kbd>. Press it firmly again to wake.</li>
+      <li><b>Reset:</b> hold <kbd>BOOT</kbd> and tap the glass.</li>
+    </ul>
   </section>
 
   <footer class="card foot">
