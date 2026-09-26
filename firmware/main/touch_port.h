@@ -38,6 +38,12 @@ int  touch_port_take_setting(int *value);       /* SET_TAP_* or 0 */
 bool touch_port_shop(void);
 void touch_port_show_shop(bool on);
 int  touch_port_take_shop(void);
+/* the battery pill and its page (2026-09-24): main.c says each frame whether
+ * it drew the pill (a tap in RENDER_BAT_HIT counts only then); the page is up
+ * until any release, or 30 s; touch_port_show_battery is the director's cue */
+void touch_port_set_pill(bool up);
+bool touch_port_battery(void);
+void touch_port_show_battery(bool on);
 void touch_port_set_bias(int px);              /* finger-landing correction: reported y moves up by px */
 int  touch_port_bias(void);
 #endif

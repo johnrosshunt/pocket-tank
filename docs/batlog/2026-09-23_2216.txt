@@ -1,0 +1,28 @@
+# pocket-tank preflight 2026-09-23_2216 on /dev/cu.usbmodem2101
+I (1667300) batlog: 8 samples (h:mm since the first | SoC | VBAT | bright | state | mA since previous)
+I (1667301) batlog:     0:00 |  54% | 3856 mV |   0 | asleep | bed
+I (1667306) batlog:     0:40 |  55% | 3973 mV | 153 | awake  | boot     -2.9 mA
+I (1667312) batlog:     0:45 |  59% | 4010 mV | 153 | awake  |         -96.0 mA
+I (1667319) batlog:     0:53 |  67% | 4083 mV | 153 | awake  | boot   -120.5 mA
+I (1667326) batlog:     0:58 |  73% | 4127 mV | 153 | awake  |        -144.0 mA
+I (1667333) batlog:     1:03 |  80% | 4170 mV | 153 | awake  |        -168.0 mA
+I (1667340) batlog:     1:08 |  86% | 4198 mV | 153 | awake  |        -144.0 mA
+I (1667347) batlog:     1:13 | 100% | 4125 mV | 153 | awake  |        -336.0 mA
+I (1667354) batlog:   awake:  0.5 h, -90 mAh -> -164 mA average
+I (1667360) batlog:   asleep: 0.7 h, -2.0 mAh -> -2.95 mA average
+I (1667366) batlog:   (SoC is 1% = 2 mAh; short awake windows are coarse, a night is not)
+I (1671327) director: 0 lori   elder age 35.1h size 1.45 hunger 4.5 energy 0.0 stress 1.3 curiosity 9.3 trust 8.3 ms f3f  explore at 343,90
+I (1671329) director: 1 mira   elder age 35.1h size 1.57 hunger 4.7 energy 0.0 stress 1.3 curiosity 0.0 trust 8.3 ms f3f  visit_bubbles at 325,153
+I (1671342) director: 2 bolt   elder age 31.6h size 1.32 hunger 6.3 energy 6.7 stress 1.3 curiosity 0.0 trust 5.9 ms f3f  follow_friend at 300,82
+I (1671355) director: 3 sol    adult age 9.1h size 1.19 hunger 3.4 energy 0.0 stress 1.3 curiosity 0.6 trust 5.3 ms 73f  explore at 296,124
+I (1671367) director: pellets 0 | trickle on | ravenous 0 | day idle 371s | veg 0.05 0.05 0.05 | algae cells 0/644 | courting no | arrival -
+I (1671379) director: sand dollars 870 (earned 1140) | shop: plant snail | colonies 360 | 3057.0 in trimmed
+I (1671389) director: snail at 325,344 heading 0 deg | no target, cell -1 at -1,-1 (film 0) | 0 cells on the glass | 247 grazed so far
+I (1671401) director: bed 0 fronds (x from 19, pitch 12): 0.05 0.05 0.05 0.05 0.05 0.05 0.05 0.05 0.05 0.05 0.05 0.05 0.05 0.05 0.05
+I (1671413) director: bed 1 fronds (x from 376, pitch 12): 0.05 0.05 0.05 0.05 0.05
+I (1671420) director: bed 2 fronds (x from 278, pitch 12): 0.05 0.05 0.05 0.05 0.05 0.05 0.05 0.05
+I (1671429) director: bed 3 leaves (x from 113, pitch 14): 0.05 0.05 0.05 0.05
+I (1671435) director: plant placed: centre x 134 (the keeper's), depth IN FRONT of the fish
+I (1671444) director: castle placed: centre x 253 (the keeper's), BEHIND the grass
+I (1671473) director: nursery bed -1 (a bed >= 0.12) | parked real tank: no (this IS the real tank)
+I (1671490) director: battery 100% on battery, VBAT 4120 mV | brightness 153/255 (level 60%)

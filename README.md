@@ -132,9 +132,12 @@ the night is the morning's surprise.
 **Arrivals.** Take good care of the pair and the tank earns more fish, up to
 five, one at a time. Each arrival has conditions (trust, feedings, a fish
 grown up, a hold-approach) and the tank *tells* you when it's close: the two
-most trusting adults dive into the sea grass and circle low through it. Soon
-after, at the next light-on, there's a fry in that grass. A bed has to be
-tall enough to hide in before courtship starts or a fry can be born.
+most trusting adults dive into the sea grass and circle low through it.
+Once every condition is met, the pair goes down into the grass within half
+a minute and courts, and a few seconds into the dance there's a fry between
+them, light on or off. Put the tank to sleep before that and the fry is
+there when it wakes. A bed has to be tall enough to hide in before courtship
+starts or a fry can be born.
 
 **Trust.** Hold a finger on the glass for three seconds and the fish that
 trust you come over from anywhere in the tank, the most trusting first and
@@ -181,7 +184,7 @@ conceived in a dirty tank (film on more than 15% of the pane closes the
 gate, and its bar fills as you wipe). Tap a badge for the plain words and where it stands ("ALL FISH
 MUST HAVE TRUST OF AT LEAST 6 OUT OF 10 / LOWEST NOW 4.1"), and HOW? for a
 tip on how to get there. Tap the name for the tally. When every step is
-done, the fry is born at the next light-on.
+done, the parents court in the grass and the fry is born within the minute.
 
 ![The milestones page](docs/media/sim-milestones.png)
 ![A badge's panel, with its arrows](docs/media/sim-milestone-modal.png)
@@ -239,6 +242,48 @@ fish swim through the arch, tucked behind the jambs as they pass. The
 fish do not know it is there. They find the arch by chance, which is most
 of the charm.
 
+**The coral.** The fourth thing in the shop (100) is a branching coral,
+drawn from a little skeleton of rounded branches on a chunky pixel grid:
+a dark rim on the shaded side, a lit edge toward the light, pale tips,
+and a speckled body in whatever colour you give it. Its placement page
+has the drag, a DEPTH bar of two choices (BEHIND or IN FRONT, like the
+castle's), and a COLOR row of eight swatches; the coral on the floor wears
+the pick as you tap, and the
+shop's MOVE button brings the page back whenever you want a change. It
+also grows, and slowly, which nothing else in the tank does: you buy a
+young but established fan, the trunk and its two low branches, and over
+about seventeen days, awake or asleep, the rest of the branches reach out
+one by one until the fan is complete. It tops out about a quarter of the
+way up the glass and stays there. Then, over the following week, a crown
+of nine thin tentacles sprouts from the tip and sways on the tank clock.
+It is anchored: its base sits down in the pebbles and a low hump of the
+floor's own stones is heaped round it, so the trunk grows out of the floor
+instead of standing on it.
+
+**The reef cluster.** The fifth thing in the shop, and the dearest (240),
+lives on the shop's second page: the header's arrows flip to it. It is a
+whole mature reef on a pile of stones, drawn the same procedural way from
+Strato's cluster art: a branching coral to the left, four tube sponges
+with dark mouths, a lobed brain coral in front, green weed between the
+stones, about twice the coral's footprint. You buy it big, at 85% of its
+full size, because a keeper buying a coral wants something to look at on
+day one; over two weeks it fills out to full size, and over the two weeks
+after that it blooms, up to forty-eight thin tentacles appearing one at a
+time round the tube mouths, the coral's tips and the brain's top, every
+one swaying. Its placement page has the drag, the two depths, and a LOOK
+row of three tiles instead of a colour: REEF is the art's orange, purple
+and cyan; LAGOON is pink, blue and lime; DUSK is magenta, teal and gold.
+It sits in a hump of stones like the coral.
+
+**Selling back, and the short way to a piece.** Tap and hold a still
+finger on any decoration in the tank and its placement page opens right
+there, with MOVE, DEPTH and, in the top-left corner, SELL. The same SELL
+sits next to MOVE in the shop's modal for anything you own. A sale needs
+two taps: the first arms the button and shows the refund, the second
+sells. You get 20% of the price back, the piece leaves the tank, and it is
+in the shop again at full price. The snail is not for sale; it is a
+permanent resident.
+
 ![The shop](docs/media/sim-shop.png)
 ![Unlocking the snail](docs/media/sim-shop-modal.png)
 ![The sword plant and the snail on the glass, a +5 just earned](docs/media/sim-tank-shop.png)
@@ -248,6 +293,16 @@ of the charm.
 ![The castle IN FRONT of the grass, a fish in the arch](docs/media/sim-castle.png)
 ![The castle BEHIND the grass](docs/media/sim-castle-behind.png)
 ![Placing the castle: BEHIND or IN FRONT](docs/media/sim-place-castle.png)
+![The coral on the day it is bought, AMONG the grass](docs/media/sim-coral-young.png)
+![The grown coral with its crown of tentacles](docs/media/sim-coral.png)
+![A violet coral IN FRONT of everything](docs/media/sim-coral-front.png)
+![Placing the coral: the COLOR row above the water](docs/media/sim-place-coral.png)
+![The shop's second page](docs/media/sim-shop2.png)
+![The reef cluster on the day it is bought](docs/media/sim-cluster-young.png)
+![The reef cluster in full bloom](docs/media/sim-cluster.png)
+![The LAGOON look, IN FRONT](docs/media/sim-cluster-front.png)
+![Placing the reef cluster: the LOOK row](docs/media/sim-place-cluster.png)
+![SELL armed in the castle's modal](docs/media/sim-shop-sell.png)
 
 **The light.** Two quick taps on the glass turn the tank light off and on;
 in the dark the fish rest and the palette dims. The settings page has a
@@ -256,6 +311,19 @@ knows when it is being handled (the motion sensor, or a touch) and goes
 dark by itself after a chosen number of still seconds, so a tank left on
 the desk is asleep until you pick it up. Six hours of device sleep in one
 stretch earns the tank its first full night's sleep.
+
+![The battery page, charging](docs/media/sim-battery-page.png)
+
+**The battery.** A small battery sits top right whenever a fish's card is
+open, and stays up by itself when the charge runs low. On the cable a
+lightning bolt stands beside it, and while it charges a bright band runs
+through the fill, so you never have to tell two colors apart to know it is
+charging. Plug the tank in and the battery shows itself for a few seconds
+to say it noticed. Tap it for the battery page: the charge, whether it is
+charging, about how long it will last (or how long until it is full), how
+long ago it was unplugged, the screen-on time since, and how long a full
+charge lasts. The tank learns those times from its own battery as you use
+it.
 
 **Habits and continuity.** The tank remembers where you feed it and greets
 the light coming on. A real-time clock tells it how long it was off, so a
@@ -298,7 +366,7 @@ is now, with what it inherited: whose body, whose markings, and how bold
 and sociable it is on bars marked with each parent's own value. Its
 markings, like any fry's, come in as it grows. The welcome is saved with
 the tank until you finish it, so a fry born while you were away is waiting
-for you at the next light.
+for you when you come back.
 
 ![A new fry: the announcement](docs/media/sim-birth-born.png)
 ![Naming the new fry](docs/media/sim-birth-name_new.png)
@@ -340,21 +408,24 @@ between the rule stub and the LLM brain, **U** overlays, **M** milestones,
 **X** the reset prompt, **S** the first-run setup (or drops a birth's pages), **R** force an arrival
 (the birth flow opens), **Z** jump through seven
 hours of sleep, **G** grow the grass and algae now, **V** volume, **B** the
-low-battery notice, **Q** quit.
+low-battery notice, **P** plug or unplug a pretend battery (click the
+battery for its page), **Q** quit.
 
 Flags: `--fresh` starts a new random tank, `--fast N` runs tended time N×
 faster so you can watch fish grow up, `--greedy` disables sampling,
-`--narrate` prints every decision as it's made, `--snapshot <prefix>` writes
+`--narrate` prints every decision as it's made, `--battery N` starts the
+pretend battery at N%, `--snapshot <prefix>` writes
 PPM frames of the tank, card, milestones page, the shop, the placement
-page, the castle (in front, behind, its page), reset prompt, the setup
-pages, and the three pages of a birth.
+page, the castle (in front, behind, its page), the battery in each state
+and its page, reset prompt, the setup pages, and the three pages of a birth.
 
 Headless checks, all of which run in CI-style without a window:
 `--selftest` (reflex layer), `--selftest-llm [min]` (the real model),
 `--selftest-pop` (arrivals, inherited looks, saves, the setup and birth flows), `--selftest-sleep` (sleep metabolism,
 the deep-sleep wake, and ravenous begging), `--selftest-hunger` (the hunger economy),
 `--selftest-tend` (grass, algae, trust holds), `--selftest-shop` (sand
-dollars, the shop, the plant, the snail), and `--bench` (render cost).
+dollars, the shop, the plant, the snail), `--selftest-battery` (the battery
+page's numbers, and the bolt only on the cable), and `--bench` (render cost).
 
 ## Try it: firmware in QEMU
 
@@ -487,7 +558,8 @@ seven-minute prompt check before an overnight run is always worth it.
 - ✅ Model: schema v4 (boredom, no shadow), 14.3M student, 4-bit export, evaluated
 - ✅ Simulator: the full tank with progression, self-tests, snapshots
 - ✅ Firmware: running on the real board at 25 to 30 fps and 3.7 s per
-  decision, with touch, auto-rotation, a battery gauge and log, and one
+  decision, with touch, auto-rotation, a battery gauge and log (tap the
+  battery for its page; on the cable it wears a bolt), and one
   key for sleep and wake (a 20 min nap window, then the board powers itself
   off to tens of microamps; from there a held press wakes it)
 - ✅ The living tank: growth, arrivals with courtship, trust, the hunger

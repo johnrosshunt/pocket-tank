@@ -3,9 +3,11 @@
 #define BATTERY_PORT_H
 #include <stdbool.h>
 #include "driver/i2c_master.h"
+#include "battery.h"            /* BAT_* */
 
 bool battery_port_init(i2c_master_bus_handle_t bus);   /* false = no PMIC, meter hidden */
-bool battery_port_read(float *frac, bool *charging);   /* cached ~5 s; false = hide meter */
+bool battery_port_read(float *frac, bool *charging);   /* cached ~1 s; false = hide meter */
+int  battery_port_state(void);                          /* BAT_* from the same read: the cable, the charger's phase */
 bool battery_port_poweroff(void);                      /* PMIC soft power-off; false = no PMIC */
 /* the PWR key (2026-09-16): THE button. It is the AXP2101's PWRON pin, so it
  * is the only key that can bring the board back from a PMIC power-off - and

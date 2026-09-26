@@ -1,0 +1,32 @@
+# pocket-tank preflight 2026-09-23_2232 on /dev/cu.usbmodem2101
+I (901645) batlog: 11 samples (h:mm since the first | SoC | VBAT | bright | state | mA since previous)
+I (901646) batlog:     0:00 |  54% | 3856 mV |   0 | asleep | bed
+I (901651) batlog:     0:40 |  55% | 3973 mV | 153 | awake  | boot     -2.9 mA
+I (901657) batlog:     0:45 |  59% | 4010 mV | 153 | awake  |         -96.0 mA
+I (901664) batlog:     0:53 |  67% | 4083 mV | 153 | awake  | boot   -120.5 mA
+I (901671) batlog:     0:58 |  73% | 4127 mV | 153 | awake  |        -144.0 mA
+I (901678) batlog:     1:03 |  80% | 4170 mV | 153 | awake  |        -168.0 mA
+I (901685) batlog:     1:08 |  86% | 4198 mV | 153 | awake  |        -144.0 mA
+I (901692) batlog:     1:13 | 100% | 4125 mV | 153 | awake  |        -336.0 mA
+I (901699) batlog:     1:21 | 100% | 4116 mV | 153 | awake  | boot      0.0 mA
+I (901706) batlog:     1:26 | 100% | 4113 mV | 153 | awake  |           0.0 mA
+I (901713) batlog:     1:31 | 100% | 4113 mV | 153 | awake  |           0.0 mA
+I (901719) batlog:   awake:  0.9 h, -90 mAh -> -106 mA average
+I (901725) batlog:   asleep: 0.7 h, -2.0 mAh -> -2.95 mA average
+I (901731) batlog:   (SoC is 1% = 2 mAh; short awake windows are coarse, a night is not)
+I (905738) director: 0 lori   elder age 35.3h size 1.45 hunger 7.2 energy 2.3 stress 1.3 curiosity 8.6 trust 8.3 ms f3f  explore at 237,282
+I (905740) director: 1 mira   elder age 35.3h size 1.57 hunger 2.9 energy 2.6 stress 1.3 curiosity 0.5 trust 8.3 ms f3f  explore at 411,215
+I (905753) director: 2 bolt   elder age 31.8h size 1.34 hunger 4.2 energy 3.8 stress 1.3 curiosity 0.0 trust 5.9 ms f3f  follow_friend at 387,169
+I (905765) director: 3 sol    adult age 9.4h size 1.21 hunger 6.5 energy 3.0 stress 1.3 curiosity 3.7 trust 5.3 ms 73f  inspect_reef at 87,256
+I (905778) director: pellets 0 | trickle on | ravenous 0 | day idle 113s | veg 0.06 0.06 0.06 | algae cells 0/644 | courting no | arrival -
+I (905790) director: sand dollars 776 (earned 1146) | shop: plant snail | colonies 360 | 3057.0 in trimmed
+I (905800) director: snail at 168,344 heading 90 deg | no target, cell -1 at -1,-1 (film 0) | 0 cells on the glass | 250 grazed so far
+I (905812) director: bed 0 fronds (x from 19, pitch 12): 0.06 0.06 0.06 0.06 0.06 0.06 0.06 0.06 0.06 0.06 0.06 0.06 0.06 0.06 0.06
+I (905823) director: bed 1 fronds (x from 376, pitch 12): 0.06 0.06 0.06 0.06 0.06
+I (905830) director: bed 2 fronds (x from 278, pitch 12): 0.06 0.06 0.06 0.06 0.06 0.06 0.06 0.06
+I (905839) director: bed 3 leaves (x from 113, pitch 14): 0.06 0.06 0.06 0.06
+I (905846) director: plant placed: centre x 134 (the keeper's), depth IN FRONT of the fish
+I (905854) director: castle placed: centre x 253 (the keeper's), BEHIND the grass
+I (905861) director: coral placed: centre x 69 (the keeper's), IN FRONT, colour ff7a1e
+I (905869) director: nursery bed -1 (a bed >= 0.12) | parked real tank: no (this IS the real tank)
+I (905877) director: battery 100% on battery, VBAT 4111 mV | brightness 153/255 (level 60%)
