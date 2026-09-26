@@ -99,6 +99,17 @@ const char *tank_roster_name(int preset) { return preset >= 0 && preset < ROSTER
  * silver; the roster's five accents + white, the stress red and a dark ink */
 const uint32_t LOOK_BODY[LOOK_N]   = { 0x38dcc7, 0xff725c, 0x78d67d, 0xa799ff, 0xffd166, 0xf48fb1, 0x4da3ff, 0xe8f1f2 };
 const uint32_t LOOK_ACCENT[LOOK_N] = { 0xffbd59, 0xffe08a, 0xa799ff, 0x78d67d, 0x38dcc7, 0xffffff, 0xf25b65, 0x1a2a30 };
+/* the coral's swatches (2026-09-23): the reference art's orange first, then
+ * reef colours - pink, magenta, violet, blue, teal, green, gold */
+const uint32_t CORAL_PAL[CORAL_N] = { 0xff7a1e, 0xf2698f, 0xd24bb4, 0x8a5be0, 0x3f8ff0, 0x2ec9b4, 0x7fc64a, 0xf2c23a };
+/* the reef cluster's three looks (2026-09-24): REEF is the art's - an
+ * orange coral, purple tubes, a cyan brain; LAGOON pink / blue / lime;
+ * DUSK magenta / teal / gold */
+const cluster_scheme_t CLUSTER_SCHEMES[CLUSTER_SCHEME_N] = {
+    { "REEF",   0xff6a2a, 0x9b4fe0, 0x5fd8e8 },
+    { "LAGOON", 0xf25c8a, 0x3f8ff0, 0xb9f04a },
+    { "DUSK",   0xd24bb4, 0x2ec9b4, 0xf2c23a },
+};
 
 void tank_set_name(tank_t *t, int slot, const char *name) {
     if (slot < 0 || slot >= N_FISH_MAX) return;
@@ -243,6 +254,7 @@ void tank_init(tank_t *t, uint32_t seed) {
     t->feed_spot_x = -1; t->player_feedings = 0; t->feed_open = false; t->hold_approaches = 0; t->greet_timer = 0;
     t->courting = false; t->court_a = t->court_b = -1;
     t->court_cool = 30; t->court_active = 0;
+    t->spawning = false; t->spawn_danced = 0; t->ui_cover = false;
     t->ravenous = false; t->trickle_off = false;
     t->stage_fish = -1; t->hold_light = false;
     t->drag_active = false; t->drag_has_prev = false; t->drag_dist = 0;
@@ -267,6 +279,8 @@ void tank_init(tank_t *t, uint32_t seed) {
     t->snail_grazed = 0;
     t->plant_x = 0; t->plant_z = DECOR_Z_MIDDLE;
     t->castle_x = 0; t->castle_z = DECOR_Z_FRONT;
+    t->coral_x = 0; t->coral_z = DECOR_Z_FRONT; t->coral_rgb = 0; t->coral_growth = 0; t->coral_acc = 0;
+    t->cluster_x = 0; t->cluster_z = DECOR_Z_FRONT; t->cluster_scheme = 0; t->cluster_growth = 0; t->cluster_acc = 0;
     t->tank_ms_bits = 0; t->tank_ms_seen = 0; t->ask_rr = 0; t->advisor_asks = 0;
     tank_scatter_food(t, 2);
 }
@@ -281,6 +295,7 @@ void tank_init(tank_t *t, uint32_t seed) {
 #define HOLD_ATTRACT_S  2.7f    /* hold_time before fish approach; platforms
                                  * report holds ~0.3 s in, so ≈3 s of contact */
 #define HOLD_HUNGER_VETO 7.5f   /* this hungry, a fish ignores the finger */
+#define SPAWN_NEAR_PX   20.0f   /* past the courtship loop's reach: a parent this close is circling in the fronds */
 #define HOLD_APPROACH_FROM 60.0f /* a hold-approach must START at least this far out:
                                  * a fish already under the finger earns nothing */
 #define HOLD_APPROACH_AT   30.0f /* ... and come in this close */
@@ -318,14 +333,20 @@ void tank_init(tank_t *t, uint32_t seed) {
  * unease that lifts as soon as one tuft regrows. Rates are per real second;
  * tank_tick runs them awake, tank_tick_sleep runs them faster (an untended
  * dark tank is where the garden gets away from you). */
-#define VEG_GROW_AWAKE_S    108000.0f /* nubs -> full canopy in ~30 h awake */
-#define VEG_GROW_SLEEP_S    36000.0f  /* ~10 h of drowse */
+#define VEG_GROW_AWAKE_S    162000.0f /* nubs -> the ceiling in ~45 h awake (was 30 h
+                                       * until 2026-09-23: a few hours' sleep put
+                                       * every bed at the surface, every time) */
+#define VEG_GROW_SLEEP_S    72000.0f  /* ~20 h of sleep (was 10 h): one night takes a
+                                       * trimmed bed from a third of the glass to
+                                       * two thirds, the second reaches the ceilings */
 #define VEG_SWORD_GROW      1.25f     /* the sword plant grows a bit faster than the
-                                       * grass (nubs -> full in ~24 h awake / ~8 h asleep) */
+                                       * grass (~36 h awake / ~16 h asleep) */
 #define VEG_SEG_PX          3.2f      /* render.c VEG_SEG_DY: px of height per segment */
 #define VEG_SLOW            0.60f     /* cruise speed factor inside a canopy */
 #define ALGAE_STEP_AWAKE_S  240.0f    /* one film growth step per 4 min awake */
-#define ALGAE_STEP_SLEEP_S  120.0f
+#define ALGAE_STEP_SLEEP_S  180.0f    /* (120 until 2026-09-23: a 7 h night filmed the
+                                       * glass to the cap, so every morning looked the
+                                       * same; now a night lands near ALGAE_DIRTY) */
 #define ALGAE_COVER_CAP     0.30f     /* growth stops claiming new cells here */
 #define WIPE_RADIUS      20.0f  /* squeegee half-width around the drag path */
 #define WIPE_ENGAGE_PX   18.0f  /* stroke travel before a drag starts wiping
@@ -411,6 +432,28 @@ static void court_site(const tank_t *t, float *cx, float *cy, float *rx) {
     *cx = (x0 + x1) * 0.5f; *cy = TANK_H - 16 - 14;
     float half = (x1 - x0) * 0.5f - 8; *rx = half < 16 ? 16 : half > 30 ? 30 : half;
 }
+void tank_court_puff(tank_t *t, int n) {
+    float sx, sy, sr; court_site(t, &sx, &sy, &sr);
+    for (int i = 0; i < MAX_BUBBLE && n > 0; i++) {
+        if (t->bubble[i].column) continue;
+        t->bubble[i].x = sx + tank_randf(t, -10, 10);
+        t->bubble[i].y = sy - 6;
+        n--;
+    }
+}
+/* the courtship circle, shared by the tell's episodes and the spawning: the
+ * pair weaves a low loop through the nursery on opposite sides - performed
+ * rather than printed (reflex presentation; the advisor still owns both
+ * goals). Down in the fronds, not mid-water: Strato (2026-09-04) - by the
+ * reef it read as two friends at the bubbles. */
+static void court_steer(const tank_t *t, const fish_t *f, int idx, float *desired, float *speed) {
+    float ph = t->clock * 1.7f + (idx == t->court_b ? 3.14159f : 0);
+    float cx, cy, rx; court_site(t, &cx, &cy, &rx);
+    float wx = cx + cosf(ph) * rx, wy = cy + sinf(ph) * 6;
+    float to = atan2f(wy - f->y, wx - f->x);
+    *desired = norm_ang(*desired + norm_ang(to - *desired) * 0.85f);
+    *speed = tank_dist(f->x, f->y, cx, cy) > 90 ? 46 : 30;
+}
 int tank_veg_frond(const tank_t *t, int b, int i, float *x) {
     float bx0; int n;
     veg_bed_base(t, b, &bx0, &n);
@@ -427,11 +470,30 @@ static void veg_sync(tank_t *t) {
         t->veg_growth[b] = sum / n;
     }
 }
+/* frond i of bed b grows toward its own ceiling: a hash of the slot spread
+ * over VEG_CAP_LO..VEG_CAP_HI (a different hash than the fresh tank's start
+ * profile, so a tall start does not mean a tall ceiling) */
+float tank_veg_cap(int b, int i) {
+    uint32_t h = (uint32_t)((b * 29 + i + 3) * 2246822519u);
+    return VEG_CAP_LO + (float)(h >> 8 & 1023) / 1023.0f * (VEG_CAP_HI - VEG_CAP_LO);
+}
+/* a bed's mean ceiling: what "full" means for it (the smother band) */
+static float veg_cap_mean(const tank_t *t, int b) {
+    float bx0; int n; veg_bed_base(t, b, &bx0, &n);
+    float sum = 0;
+    for (int i = 0; i < n; i++) sum += tank_veg_cap(b, i);
+    return sum / n;
+}
 static void veg_grow(tank_t *t, float dg) {
     for (int b = 0; b < tank_veg_beds(t); b++) {
         float dgb = tank_veg_kind(t, b) == VEG_KIND_SWORD ? dg * VEG_SWORD_GROW : dg;
-        for (int i = 0; i < VEG_FRONDS_MAX; i++)
-            t->veg_h[b][i] = fminf(1, t->veg_h[b][i] + dgb);
+        for (int i = 0; i < VEG_FRONDS_MAX; i++) {
+            float h = t->veg_h[b][i], cap = tank_veg_cap(b, i);
+            if (h >= cap) continue;                   /* at (or staged above) its ceiling */
+            float room = cap - h;                     /* the last stretch comes in slowly */
+            float ease = room < VEG_CAP_TAPER ? fmaxf(0.3f, room / VEG_CAP_TAPER) : 1.0f;
+            t->veg_h[b][i] = fminf(cap, h + dgb * ease);
+        }
     }
     veg_sync(t);
 }
@@ -689,21 +751,71 @@ void tank_plant_place(tank_t *t) {
 void tank_castle_place(tank_t *t) {
     t->castle_x = 0; t->castle_z = DECOR_Z_FRONT;          /* the default spot, the fish swim through */
 }
-/* the decor's spot and layer (see tank.h): item 0 is the plant, item 2 the castle */
-bool  tank_decor_placeable(int item) { return item == 0 || item == 2; }
-float tank_decor_half_w(int item) { return item == 0 ? PLANT_HALF_W : item == 2 ? CASTLE_HALF_W : 0; }
-int   tank_decor_z_count(int item) { return item == 2 ? 2 : DECOR_Z_N; }
+void tank_coral_place(tank_t *t) {
+    t->coral_x = 0; t->coral_z = DECOR_Z_FRONT;            /* the default spot, in front of the reef bed's grass; the colour stays the keeper's */
+    t->coral_growth = CORAL_START;                          /* young: it grows from here */
+}
+uint32_t tank_coral_rgb(const tank_t *t) { return t->coral_rgb ? t->coral_rgb : CORAL_PAL[0]; }
+float    tank_coral_growth(const tank_t *t) { return t->coral_growth <= 0 ? CORAL_FULL : t->coral_growth > CORAL_FULL ? CORAL_FULL : t->coral_growth; }
+static void coral_grow(tank_t *t, float seconds) {          /* the same pace awake and asleep */
+    if (!(t->sd_unlocks & SD_ITEM_CORAL) || t->coral_growth <= 0 || t->coral_growth >= CORAL_FULL) return;
+    t->coral_growth = fminf(CORAL_FULL, t->coral_growth + seconds / CORAL_GROW_S);
+}
+void tank_cluster_place(tank_t *t) {
+    t->cluster_x = 0; t->cluster_z = DECOR_Z_FRONT;         /* the default spot; the look stays the keeper's */
+    t->cluster_growth = CLUSTER_START + 1e-4f;              /* > 0: growing (0 in a save = full, tank_cluster_growth) */
+}
+float tank_cluster_growth(const tank_t *t) { return t->cluster_growth <= 0 ? CLUSTER_FULL : t->cluster_growth > CLUSTER_FULL ? CLUSTER_FULL : t->cluster_growth; }
+int   tank_cluster_scheme(const tank_t *t) { return t->cluster_scheme < CLUSTER_SCHEME_N ? t->cluster_scheme : 0; }
+void  tank_cluster_set_scheme(tank_t *t, int i) { t->cluster_scheme = (uint8_t)(i < 0 ? 0 : i >= CLUSTER_SCHEME_N ? CLUSTER_SCHEME_N - 1 : i); }
+static void cluster_grow(tank_t *t, float seconds) {
+    if (!(t->sd_unlocks & SD_ITEM_CLUSTER) || t->cluster_growth <= 0 || t->cluster_growth >= CLUSTER_FULL) return;
+    t->cluster_growth = fminf(CLUSTER_FULL, t->cluster_growth + seconds / CLUSTER_GROW_S);
+}
+void     tank_coral_set_rgb(tank_t *t, uint32_t rgb) { t->coral_rgb = rgb & 0xffffff; }
+/* the decor's spot and layer (see tank.h): item 0 is the plant, item 2 the castle, item 3 the coral, item 4 the cluster */
+bool  tank_decor_placeable(int item) { return item == 0 || item == 2 || item == 3 || item == 4; }
+float tank_decor_half_w(int item) { return item == 0 ? PLANT_HALF_W : item == 2 ? CASTLE_HALF_W : item == 3 ? CORAL_HALF_W : item == 4 ? CLUSTER_HALF_W : 0; }
+/* only the plant weaves AMONG the fish; the castle and both corals are
+ * BEHIND or IN FRONT (Strato, 2026-09-24: "remove the among option for
+ * corals, it doesn't really make as much sense") */
+int   tank_decor_z_count(int item) { return item == 0 ? DECOR_Z_N : 2; }
 int   tank_decor_z_at(int item, int i) {
-    if (item == 2) return i <= 0 ? DECOR_Z_BACK : DECOR_Z_FRONT;
+    if (item != 0) return i <= 0 ? DECOR_Z_BACK : DECOR_Z_FRONT;
     return i < 0 ? 0 : i >= DECOR_Z_N ? DECOR_Z_N - 1 : i;
 }
-int   tank_decor_z_index(int item, int z) { return item == 2 ? (z == DECOR_Z_BACK ? 0 : 1) : z; }
+int   tank_decor_z_index(int item, int z) { return item != 0 ? (z == DECOR_Z_BACK ? 0 : 1) : z; }
 float tank_decor_x(const tank_t *t, int item) {
     if (item == 2) return t->castle_x > 0 ? t->castle_x : CASTLE_X_DEFAULT;
+    if (item == 3) return t->coral_x > 0 ? t->coral_x : CORAL_X_DEFAULT;
+    if (item == 4) return t->cluster_x > 0 ? t->cluster_x : CLUSTER_X_DEFAULT;
     if (item != 0) return 0;
     return t->plant_x > 0 ? t->plant_x : PLANT_X_DEFAULT;
 }
-int tank_decor_z(const tank_t *t, int item) { return item == 0 ? t->plant_z : item == 2 ? t->castle_z : DECOR_Z_MIDDLE; }
+int tank_decor_z(const tank_t *t, int item) { return item == 0 ? t->plant_z : item == 2 ? t->castle_z : item == 3 ? t->coral_z : item == 4 ? t->cluster_z : DECOR_Z_MIDDLE; }
+static float decor_top(const tank_t *t, int item) {         /* the piece's highest pixel */
+    if (item == 0) { float top; tank_veg_bed(t, 3, NULL, NULL, &top, NULL); return top; }
+    if (item == 2) return TANK_H - 16 - 146;
+    if (item == 3) return TANK_H - 14 + DECOR_SINK - 92;
+    return TANK_H - 14 + DECOR_SINK - 120;
+}
+int tank_decor_hit(const tank_t *t, float x, float y) {
+    static const int order[4] = { 3, 0, 2, 4 };               /* the coral, the plant, the castle, the cluster */
+    static const uint32_t bits[5] = { SD_ITEM_PLANT, 0, SD_ITEM_CASTLE, SD_ITEM_CORAL, SD_ITEM_CLUSTER };
+    for (int k = 0; k < 4; k++) {
+        int item = order[k];
+        if (!(t->sd_unlocks & bits[item])) continue;
+        float cx = tank_decor_x(t, item), half = tank_decor_half_w(item) + 8;
+        if (x >= cx - half && x <= cx + half && y >= decor_top(t, item) - 8 && y <= TANK_H) return item;
+    }
+    return -1;
+}
+void tank_decor_reset(tank_t *t, int item) {
+    if (item == 0) { t->plant_x = 0; t->plant_z = DECOR_Z_MIDDLE; tank_veg_set(t, 3, VEG_START); }
+    if (item == 2) { t->castle_x = 0; t->castle_z = DECOR_Z_FRONT; }
+    if (item == 3) { t->coral_x = 0; t->coral_z = DECOR_Z_FRONT; t->coral_rgb = 0; t->coral_growth = 0; t->coral_acc = 0; }
+    if (item == 4) { t->cluster_x = 0; t->cluster_z = DECOR_Z_FRONT; t->cluster_scheme = 0; t->cluster_growth = 0; t->cluster_acc = 0; }
+}
 void tank_decor_set(tank_t *t, int item, float x, int z) {
     if (!tank_decor_placeable(item)) return;
     float half = tank_decor_half_w(item), lo = DECOR_MARGIN + half, hi = TANK_W - DECOR_MARGIN - half;
@@ -711,7 +823,10 @@ void tank_decor_set(tank_t *t, int item, float x, int z) {
     if (x > hi) x = hi;
     if (z < 0) z = 0;
     if (z >= DECOR_Z_N) z = DECOR_Z_N - 1;
-    if (item == 2) { t->castle_x = x; t->castle_z = (uint8_t)(z == DECOR_Z_BACK ? DECOR_Z_BACK : DECOR_Z_FRONT); return; }   /* no AMONG */
+    uint8_t z2 = (uint8_t)(z == DECOR_Z_BACK ? DECOR_Z_BACK : DECOR_Z_FRONT);   /* no AMONG for these */
+    if (item == 2) { t->castle_x = x; t->castle_z = z2; return; }
+    if (item == 3) { t->coral_x = x; t->coral_z = z2; return; }
+    if (item == 4) { t->cluster_x = x; t->cluster_z = z2; return; }
     t->plant_x = x; t->plant_z = (uint8_t)z;
 }
 
@@ -853,19 +968,24 @@ static void touch_tick(tank_t *t, float dt) {
      * pair circles the reef for a few seconds every minute or so - frequent
      * enough to notice across a couple of check-ins, rare enough to feel
      * like something glimpsed rather than an indicator */
-    if (t->courting && !t->night) {
+    if (t->spawning && t->court_a >= 0 && t->court_b >= 0) {
+        /* the spawning (2026-09-24): no episode clock - the pair circles in
+         * the grass until the fry comes, lit or dark. The clock that counts
+         * is the time BOTH spend in the fronds (a parent still swimming down,
+         * or begging, holds it); the bubbles mark their arrival. */
+        float sx, sy, sr; court_site(t, &sx, &sy, &sr);
+        const fish_t *a = &t->fish[t->court_a], *b = &t->fish[t->court_b];
+        if (tank_dist(a->x, a->y, sx, sy) < sr + SPAWN_NEAR_PX && tank_dist(b->x, b->y, sx, sy) < sr + SPAWN_NEAR_PX) {
+            if (t->spawn_danced == 0) tank_court_puff(t, 2);
+            t->spawn_danced += dt;
+        }
+        t->court_active = 0;
+    } else if (t->courting && !t->night) {
         if (t->court_active > 0) t->court_active -= dt;
         else if ((t->court_cool -= dt) <= 0) {
             t->court_active = tank_randf(t, 6, 9);
             t->court_cool = tank_randf(t, 40, 90);
-            int puffs = 2;                          /* a flirt of bubbles, from the grass */
-            float sx, sy, sr; court_site(t, &sx, &sy, &sr);
-            for (int i = 0; i < MAX_BUBBLE && puffs > 0; i++) {
-                if (t->bubble[i].column) continue;
-                t->bubble[i].x = sx + tank_randf(t, -10, 10);
-                t->bubble[i].y = sy - 6;
-                puffs--;
-            }
+            tank_court_puff(t, 2);                  /* a flirt of bubbles, from the grass */
         }
     } else t->court_active = 0;
     /* a lifted finger ends the wipe/slash stroke (platform re-asserts while down) */
@@ -921,6 +1041,8 @@ void tank_tick_sleep(tank_t *t, float seconds) {
     /* the garden grows fastest in a dark, untended tank: waking to a taller
      * canopy and film on the glass is the morning chore */
     veg_grow(t, seconds / VEG_GROW_SLEEP_S);
+    coral_grow(t, seconds);
+    cluster_grow(t, seconds);
     snail_sleep(t, seconds);
     /* film steps go through the same accumulator the awake tick uses: the
      * device drowses in 60 s slices (firmware DROWSE_TICK_US) and
@@ -1130,9 +1252,10 @@ static void update_fish(tank_t *t, int idx, float dt) {
     /* vegetation comfort (2026-09-04 rework: fish LIKE cover). Three regimes,
      * each seeking its own equilibrium against the natural decay above:
      *  - SMOTHERED: the second-tallest bed past VEG_SMOTHER (85% of the way to
-     *    the surface) - at least two beds crowding the ceiling - is the tank
+     *    its own ceiling, tank_veg_cap - since 2026-09-23 a bed stops short of
+     *    the surface) - at least two beds crowding their ceilings - is the tank
      *    being overrun: real stress, ramping from nothing at 85% to the full
-     *    press at 100% (settles ~6-7 with every bed at the ceiling). One bed
+     *    press at 100% (settles ~6-7 with every bed at its ceiling). One bed
      *    at the ceiling is just a good hiding place, never a stressor.
      *  - BARE: no bed past VEG_BARE - nowhere to hide - is a mild unease
      *    (settles ~1.3) that lifts the moment one tuft regrows.
@@ -1144,7 +1267,8 @@ static void update_fish(tank_t *t, int idx, float dt) {
         int nb = tank_veg_beds(t);
         for (int b = 0; b < nb; b++) {
             float g = t->veg_growth[b];
-            gmean += g / nb;
+            gmean += g / nb;                          /* cover calms by real height */
+            g /= veg_cap_mean(t, b);                  /* the smother band by fullness */
             if (g > g1) { g2 = g1; g1 = g; } else if (g > g2) g2 = g;
         }
         float over = (g2 - VEG_SMOTHER) / (1.0f - VEG_SMOTHER);
@@ -1227,6 +1351,13 @@ static void update_fish(tank_t *t, int idx, float dt) {
         float to = atan2f(wy - f->y, wx - f->x);
         desired = norm_ang(desired + norm_ang(to - desired) * 0.85f);
         touch_speed = tank_dist(f->x, f->y, t->stage_x, t->stage_y) > 80 ? 44 : 20;
+    } else if (t->spawning && (idx == t->court_a || idx == t->court_b) &&
+               f->goal.id != GOAL_FLEE_SHADOW && !(t->ravenous && f->hunger > 6.5f)) {
+        /* the spawning (2026-09-24): the courtship that ends in a fry. It
+         * outranks a resting finger and the greeting - this is the moment the
+         * keeper is here for - and hunger short of the famine doesn't veto
+         * it; a starving parent still begs first (feed it, it comes back). */
+        court_steer(t, f, idx, &desired, &touch_speed);
     } else if (t->hold_active && t->hold_time >= HOLD_ATTRACT_S &&
                f->goal.id != GOAL_FLEE_SHADOW && f->trust >= 4.0f &&
                f->hunger < HOLD_HUNGER_VETO) {
@@ -1279,17 +1410,8 @@ static void update_fish(tank_t *t, int idx, float dt) {
     } else if (t->court_active > 0 && !t->ravenous &&
                (idx == t->court_a || idx == t->court_b) &&
                f->goal.id != GOAL_FLEE_SHADOW && f->hunger < HOLD_HUNGER_VETO) {
-        /* courtship circle: the parents-to-be dive into the nursery grass and
-         * weave a low loop through it on opposite sides - the arrival tell,
-         * performed rather than printed (reflex presentation; the advisor
-         * still owns both goals). Down in the fronds, not mid-water: Strato
-         * (2026-09-04) - by the reef it read as two friends at the bubbles. */
-        float ph = t->clock * 1.7f + (idx == t->court_b ? 3.14159f : 0);
-        float cx, cy, rx; court_site(t, &cx, &cy, &rx);
-        float wx = cx + cosf(ph) * rx, wy = cy + sinf(ph) * 6;
-        float to = atan2f(wy - f->y, wx - f->x);
-        desired = norm_ang(desired + norm_ang(to - desired) * 0.85f);
-        touch_speed = tank_dist(f->x, f->y, cx, cy) > 90 ? 46 : 30;
+        /* the tell: an episode of the courtship circle, the arrival close */
+        court_steer(t, f, idx, &desired, &touch_speed);
     }
 
     /* separation - personal space. Fish are ~40 px long; the old 16 px
@@ -1406,6 +1528,10 @@ void tank_tick(tank_t *t, float dt, advisor_fn advise) {
 
     /* upkeep: the garden gets away from an idle keeper, slowly */
     veg_grow(t, dt / VEG_GROW_AWAKE_S);
+    t->coral_acc += dt;                                     /* by the minute: see tank_t.coral_acc */
+    if (t->coral_acc >= 60) { coral_grow(t, t->coral_acc); t->coral_acc = 0; }
+    t->cluster_acc += dt;
+    if (t->cluster_acc >= 60) { cluster_grow(t, t->cluster_acc); t->cluster_acc = 0; }
     t->algae_acc += dt;
     if (t->algae_acc >= ALGAE_STEP_AWAKE_S) {
         t->algae_acc -= ALGAE_STEP_AWAKE_S;

@@ -39,7 +39,11 @@ static i2c_master_dev_handle_t s_ina;
 static int64_t s_last_us = -1;
 static float s_frac; static bool s_valid;
 static bool s_chg_on, s_charging;
+static int  s_uv;                    /* the last read's shunt, for battery_port_state */
 #define CHARGING_UV (-200)           /* shunt below this: current into the pack (the bench read -2.4 mV) */
+#define DRAWING_UV  200              /* shunt above this: current out of the pack - on battery (ASSUMED: the
+                                      * console drops with the cable, so no on-battery reading was taken;
+                                      * the board's ~1-2 W is several hundred uV on any plausible shunt) */
 
 static bool rd16(uint8_t reg, uint16_t *v) {
     uint8_t b[2];
@@ -97,15 +101,26 @@ static int shunt_uv(void) {
 bool battery_port_read(float *frac, bool *charging) {
     if (!s_ina) return false;
     int64_t now = esp_timer_get_time();
-    if (s_last_us < 0 || now - s_last_us > 5 * 1000000) {
+    if (s_last_us < 0 || now - s_last_us > 900000) {   /* ~1 s: the pill answers a plug-in within a second (upstream, 2026-09-24) */
         s_last_us = now;
         int mv = battery_port_vbat_mv();
         s_valid = mv > 4000 && mv < 9500;               /* a 2S pack, not a floating input */
-        if (s_valid) { s_frac = cell_frac(mv / PACK_CELLS); s_charging = shunt_uv() < CHARGING_UV; }
+        if (s_valid) { s_frac = cell_frac(mv / PACK_CELLS); s_uv = shunt_uv(); s_charging = s_uv < CHARGING_UV; }
     }
     if (!s_valid) return false;
     *frac = s_frac; *charging = s_charging;
     return true;
+}
+
+/* the cable, from the last read (battery_port_read first; battery.h): charge
+   flowing in = CHARGING; current flowing out = ON_BATTERY; neither - the
+   board on USB with the charger resting or switched off - is FULL at the
+   top of the gauge, PLUGGED short of it */
+int battery_port_state(void) {
+    if (!s_valid) return BAT_ON_BATTERY;
+    if (s_charging) return BAT_CHARGING;
+    if (s_uv > DRAWING_UV) return BAT_ON_BATTERY;
+    return s_frac >= 0.995f ? BAT_FULL : BAT_PLUGGED;
 }
 
 void battery_port_dump(void) {
@@ -114,7 +129,7 @@ void battery_port_dump(void) {
     int mv = battery_port_vbat_mv(), uv = shunt_uv();
     ESP_LOGI(TAG, "pack %d mV (%d mV/cell, gauge %d%%) | shunt %+d uV: %s | charger %s (expander 2 P7) | INA226 config %04x",
              mv, mv / PACK_CELLS, (int)(cell_frac(mv / PACK_CELLS) * 100 + 0.5f), uv,
-             uv < CHARGING_UV ? "CHARGING" : uv > -CHARGING_UV ? "on battery" : "on USB, not charging",
+             uv < CHARGING_UV ? "CHARGING" : uv > DRAWING_UV ? "on battery" : "on USB, not charging",
              s_chg_on ? "enabled" : "DISABLED", cfg);
 }
 

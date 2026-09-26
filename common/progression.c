@@ -110,6 +110,25 @@ typedef struct {
      * castle) with the glass and spreads its film over the new grid. */
     uint16_t world_w, world_h;
     uint8_t  algae_w[ALGAE_CELLS];
+    /* ---- upstream's tails from here on (merged 2026-09-25). They follow
+     * the Tab5's world tail, not the castle as they do on main: saves this
+     * branch has already written keep every byte where it was, and the
+     * coral and the cluster read as not bought. (A 448 x 368 save that
+     * carried a coral puts it where the world tail is here: it reads as a
+     * legacy save, its spots move with the glass, and the coral comes back
+     * at its defaults - still owned.) ---- */
+    /* the coral (2026-09-23): its centre x (0 = the default), its layer + 1
+     * (0 = MIDDLE, a save that never placed it) and its colour (0 = the
+     * palette's first). Older saves read zeros: no coral until it is bought. */
+    float    coral_x;
+    uint8_t  coral_z1, pad_coral[3];
+    uint32_t coral_rgb;
+    float    coral_growth;               /* CORAL_START..1 (0 = a save from before it grew: full) */
+    /* the reef cluster (2026-09-24): its centre x (0 = the default), its
+     * layer + 1, its look, its growth (0 = full). Older saves: no cluster. */
+    float    cluster_x;
+    uint8_t  cluster_z1, cluster_scheme, pad_cluster[2];
+    float    cluster_growth;
 } save_t;
 /* the smallest PTK2 save (pre-upkeep, 2026-08-30): anything shorter is not
  * ours. Every later build wrote sizeof(save_t) of its day - 448, 1112, 1304,
@@ -140,6 +159,7 @@ static bool  s_ravenous;             /* begging/frenzy active until everyone's f
 static float s_ravenous_t;           /* seconds spent begging (dash time excluded) */
 static int   s_rav_feedings0;        /* player_feedings when the episode began (tank.ravenous_fed) */
 static bool  s_arrival_pending;
+static float s_spawn_in = -1;        /* seconds until the spawning starts (-1 = not counting) */
 static bool  s_prev_night;
 static bool  s_booted;
 static bool  s_setup_pending;        /* the first-run flow still owed (setup.c) */
@@ -163,6 +183,8 @@ const sd_item_t SD_ITEMS[SD_ITEM_COUNT] = {
     { SD_ITEM_PLANT, "SWORD PLANT", "BROAD, VERTICAL LEAVES", "MORE COVER FOR YOUR CRITTERS", SD_PRICE_PLANT },   /* Strato's words (2026-09-16); the second line is 28 chars, the shop modal is 352 wide for it */
     { SD_ITEM_SNAIL, "SNAIL",       "GRAZES THE GLASS CLEAN,",   "EVEN WHILE THE TANK SLEEPS",  SD_PRICE_SNAIL },
     { SD_ITEM_CASTLE, "CASTLE",     "STONE TOWERS AND AN ARCH",  "THE FISH SWIM THROUGH IT",    SD_PRICE_CASTLE },   /* 2026-09-16 */
+    { SD_ITEM_CORAL,  "CORAL",      "A BRANCHING REEF CORAL,",   "GROWS FOR WEEKS, YOUR COLOR", SD_PRICE_CORAL },    /* 2026-09-23 */
+    { SD_ITEM_CLUSTER, "REEF CLUSTER", "A MATURE REEF ON A ROCK,", "FILLS OUT, THEN IT BLOOMS",  SD_PRICE_CLUSTER },  /* 2026-09-24: the dearest; three looks on its page */
 };
 static void sd_award(tank_t *t, int n) {
     if (n <= 0) return;
@@ -195,6 +217,18 @@ static void sd_tick(tank_t *t) {
     hund = (int32_t)(t->trim_px / PX_PER_INCH) / SD_CHORE_EVERY;
     if (hund > t->sd_inches_paid) { sd_award(t, SD_CHORE * (hund - t->sd_inches_paid)); t->sd_inches_paid = hund; }
 }
+int progression_sell_value(int item) { return item < 0 || item >= SD_ITEM_COUNT ? 0 : SD_ITEMS[item].price * SD_SELL_PCT / 100; }
+bool progression_sell(tank_t *t, int item) {
+    if (item < 0 || item >= SD_ITEM_COUNT || !tank_decor_placeable(item)) return false;   /* the snail stays */
+    const sd_item_t *it = &SD_ITEMS[item];
+    if (!(t->sd_unlocks & it->bit)) return false;
+    t->sd_unlocks &= ~it->bit;
+    int back = progression_sell_value(item);
+    t->sd_balance += back; s_sd_pending += back;
+    tank_decor_reset(t, item);
+    mark_dirty(); progression_save(t);
+    return true;
+}
 bool progression_buy(tank_t *t, int item) {
     if (item < 0 || item >= SD_ITEM_COUNT) return false;
     const sd_item_t *it = &SD_ITEMS[item];
@@ -203,6 +237,8 @@ bool progression_buy(tank_t *t, int item) {
     if (it->bit == SD_ITEM_PLANT) tank_plant_place(t);
     if (it->bit == SD_ITEM_SNAIL) tank_snail_place(t);
     if (it->bit == SD_ITEM_CASTLE) tank_castle_place(t);
+    if (it->bit == SD_ITEM_CORAL) tank_coral_place(t);
+    if (it->bit == SD_ITEM_CLUSTER) tank_cluster_place(t);
     progression_save(t);                                   /* a purchase sticks at once */
     return true;
 }
@@ -241,17 +277,29 @@ static void apply_growth(fish_t *f) {
 
 static const uint32_t POP_TMS[N_FISH_MAX + 1] = { 0, 0, TMS_PAIR, TMS_TRIO, TMS_QUARTET, TMS_QUINTET, TMS_SEXTET };
 
-/* the arrival itself: a fry by the reef, traits inherited from the two most
- * trusting adults; the stage clock starts from zero */
-static void do_arrival(tank_t *t) {
+/* the parents: the two most trusting grown fish - or, with fewer than two
+ * grown (at two fish no stage is gated), the most trusting of the rest fill
+ * in, so there is always a pair to court (2026-09-24: the spawning needs
+ * two fish in the grass; tank_add_fish already fell back to fish 0 and 1) */
+static float parent_rank(const fish_t *f) { return (f->stage >= STAGE_ADULT ? 100.0f : 0.0f) + f->trust; }
+static void pick_parents(const tank_t *t, int *pa, int *pb) {
     int a = -1, b = -1;
     for (int i = 0; i < t->n_fish; i++) {
-        if (t->fish[i].stage < STAGE_ADULT) continue;
-        if (a < 0 || t->fish[i].trust > t->fish[a].trust) { b = a; a = i; }
-        else if (b < 0 || t->fish[i].trust > t->fish[b].trust) b = i;
+        float r = parent_rank(&t->fish[i]);
+        if (a < 0 || r > parent_rank(&t->fish[a])) { b = a; a = i; }
+        else if (b < 0 || r > parent_rank(&t->fish[b])) b = i;
     }
+    *pa = a; *pb = b;
+}
+
+/* the arrival itself: a fry in the nursery grass, traits inherited from the
+ * parents; the stage clock starts from zero */
+static void do_arrival(tank_t *t) {
+    int a, b;
+    pick_parents(t, &a, &b);
     int slot = tank_add_fish(t, a, b);
     s_arrival_pending = false;
+    s_spawn_in = -1; t->spawning = false; t->spawn_danced = 0;
     if (slot < 0) return;
     int nb = tank_nursery_bed(t);            /* born in the grass it was courted in */
     if (nb >= 0) {
@@ -444,6 +492,7 @@ static bool arrival_earned(const tank_t *t) {
 }
 
 void progression_force_arrival(tank_t *t) { s_arrival_pending = true; do_arrival(t); }
+void progression_woke(tank_t *t) { if (s_arrival_pending) do_arrival(t); }
 void progression_stage_arrival(tank_t *t) { (void)t; if (!s_arrival_pending) { s_arrival_pending = true; mark_dirty(); } }
 
 void progression_fresh(tank_t *t) {
@@ -452,7 +501,7 @@ void progression_fresh(tank_t *t) {
     for (int i = 0; i < N_FISH_MAX; i++) s_age[i] = 0;
     t->tank_ms_bits = TMS_PAIR;
     for (int i = 0; i < t->n_fish; i++) { t->fish[i].ms_bits = MS_ARRIVED; apply_growth(&t->fish[i]); }
-    s_arrival_pending = false; s_prev_night = t->night;
+    s_arrival_pending = false; s_spawn_in = -1; s_prev_night = t->night;
     s_ravenous = false; s_ravenous_t = 0;
     s_setup_pending = true;          /* a new tank: welcome, names, colours */
     s_newborn = -1;
@@ -521,6 +570,8 @@ static bool load_save(tank_t *t, int64_t *saved_unix) {
         if (sv.feed_spot_x >= 0) sv.feed_spot_x *= kx;
         if (sv.plant_x > 0) sv.plant_x *= kx;
         if (sv.castle_x > 0) sv.castle_x *= kx;
+        if (sv.coral_x > 0) sv.coral_x *= kx;           /* (upstream's pieces: see save_t) */
+        if (sv.cluster_x > 0) sv.cluster_x *= kx;
         if (sv.snail_x > 0) {                          /* a snail on the floor stays on the floor */
             sv.snail_x *= kx;
             sv.snail_y = sv.snail_y >= SAVE_LEGACY_H - 24.0f - 1 ? SNAIL_FLOOR_Y : sv.snail_y * ky;
@@ -565,9 +616,15 @@ static bool load_save(tank_t *t, int64_t *saved_unix) {
     }
     if (sv.plant_x > 0) tank_decor_set(t, 0, sv.plant_x, sv.plant_z1 ? sv.plant_z1 - 1 : DECOR_Z_MIDDLE);
     if (sv.castle_x > 0) tank_decor_set(t, 2, sv.castle_x, sv.castle_z1 ? sv.castle_z1 - 1 : DECOR_Z_FRONT);
+    if (sv.coral_x > 0) tank_decor_set(t, 3, sv.coral_x, sv.coral_z1 ? sv.coral_z1 - 1 : DECOR_Z_FRONT);   /* (an AMONG save reads as FRONT) */
+    if (sv.coral_rgb) tank_coral_set_rgb(t, sv.coral_rgb);
+    t->coral_growth = sv.coral_growth > 0 ? sv.coral_growth : 0;   /* 0 = full (tank_coral_growth) */
+    if (sv.cluster_x > 0) tank_decor_set(t, 4, sv.cluster_x, sv.cluster_z1 ? sv.cluster_z1 - 1 : DECOR_Z_FRONT);
+    tank_cluster_set_scheme(t, sv.cluster_scheme);
+    t->cluster_growth = sv.cluster_growth > 0 ? sv.cluster_growth : 0;
     s_sd_prev_feedings = t->player_feedings;         /* meals before this boot are not back-paid */
     s_sd_pending = 0;
-    s_arrival_pending = sv.arrival_pending;
+    s_arrival_pending = sv.arrival_pending; s_spawn_in = -1;
     s_prev_night = t->night;
     return true;
 }
@@ -613,7 +670,7 @@ float progression_wake(tank_t *t, int64_t now_unix) {
         progression_slept(t, (float)span);
         slept = span / 3600.0f;
     }
-    if (s_arrival_pending && !t->night && tank_nursery_bed(t) >= 0) do_arrival(t);
+    progression_woke(t);                     /* a fry staged before the sleep: born at the wake */
     return slept;
 }
 
@@ -684,8 +741,8 @@ void progression_tick(tank_t *t, float dt) {
     t->ravenous_fed = s_ravenous && t->player_feedings != s_rav_feedings0;
 
     /* the courtship tell: one condition shy of an arrival (or one staged),
-     * the two most-trusting grown fish pair up - tank.c stages the episodes.
-     * The pair is chosen exactly the way do_arrival picks parents. */
+     * the parents-to-be pair up - tank.c stages the episodes. The pair is
+     * the one do_arrival will name (pick_parents). */
     t->courting = false; t->court_a = t->court_b = -1;
     if (t->n_fish < POP_CAP && t->n_fish < N_FISH_MAX && tank_nursery_bed(t) >= 0) {
         /* ... and only with a nursery: a bed tall enough to hide in. Shave
@@ -693,25 +750,34 @@ void progression_tick(tank_t *t, float dt) {
         int met, total;
         arrival_conditions(t, &met, &total);
         if (s_arrival_pending || met >= total - 1) {
-            int a = -1, b = -1;
-            for (int i = 0; i < t->n_fish; i++) {
-                if (t->fish[i].stage < STAGE_ADULT) continue;
-                if (a < 0 || t->fish[i].trust > t->fish[a].trust) { b = a; a = i; }
-                else if (b < 0 || t->fish[i].trust > t->fish[b].trust) b = i;
-            }
+            int a, b;
+            pick_parents(t, &a, &b);
             if (a >= 0 && b >= 0) { t->courting = true; t->court_a = (int8_t)a; t->court_b = (int8_t)b; }
         }
     }
 
-    /* light-on: greet, and show a staged arrival */
+    /* light-on: greet (the light no longer brings the fry) */
     bool light_on_edge = s_prev_night && !t->night;
     if (s_prev_night != t->night) mark_dirty();
     s_prev_night = t->night;
-    if (light_on_edge) {
-        t->greet_timer = 6.0f;
-        if (s_arrival_pending && tank_nursery_bed(t) >= 0) do_arrival(t);   /* the fry waits for grass */
-    }
+    if (light_on_edge) t->greet_timer = 6.0f;
     if (!s_arrival_pending && arrival_earned(t)) { s_arrival_pending = true; mark_dirty(); }
+
+    /* the spawning (progression.h): a staged fry is born on its own, a
+     * little after the last gate closed, while the keeper can see it. The
+     * wait counts real awake seconds (not progression_time_scale) and pauses
+     * under a page; a dance cut short (a page, the grass shaved) starts
+     * over with a fresh wait. */
+    if (!s_arrival_pending || !t->courting || t->ui_cover) {
+        if (t->spawning) s_spawn_in = -1;
+        t->spawning = false; t->spawn_danced = 0;
+    } else if (!t->spawning) {
+        if (s_spawn_in < 0) s_spawn_in = tank_randf(t, SPAWN_WAIT_MIN_S, SPAWN_WAIT_MAX_S);
+        if ((s_spawn_in -= dt) <= 0) { s_spawn_in = -1; t->spawning = true; t->spawn_danced = 0; }
+    } else if (t->spawn_danced >= SPAWN_DANCE_S) {
+        do_arrival(t);                       /* between them, in the fronds */
+        tank_court_puff(t, 3);
+    }
 
     /* saves: coalesced event saves + heartbeat */
     s_since_save += dt; if (s_dirty) s_dirty_since += dt;
@@ -744,6 +810,10 @@ void progression_save(tank_t *t) {
     for (int i = 0; i < VEG_FRONDS_MAX; i++) sv.veg_h3[i] = (t->sd_unlocks & SD_ITEM_PLANT) ? t->veg_h[3][i] : 0;
     sv.plant_x = t->plant_x > 0 ? t->plant_x : 0; sv.plant_z1 = (uint8_t)(t->plant_z + 1);
     sv.castle_x = t->castle_x > 0 ? t->castle_x : 0; sv.castle_z1 = (uint8_t)(t->castle_z + 1);
+    sv.coral_x = t->coral_x > 0 ? t->coral_x : 0; sv.coral_z1 = (uint8_t)(t->coral_z + 1); sv.coral_rgb = t->coral_rgb;
+    sv.coral_growth = t->coral_growth;
+    sv.cluster_x = t->cluster_x > 0 ? t->cluster_x : 0; sv.cluster_z1 = (uint8_t)(t->cluster_z + 1); sv.cluster_scheme = t->cluster_scheme;
+    sv.cluster_growth = t->cluster_growth;
     sv.setup_pending = s_setup_pending;
     sv.newborn_p1 = (uint8_t)(s_newborn >= 0 && s_newborn < t->n_fish ? s_newborn + 1 : 0);
     sv.bubble_x = t->bubble_x;

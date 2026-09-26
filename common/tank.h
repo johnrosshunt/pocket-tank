@@ -67,10 +67,21 @@ typedef enum { VEG_KIND_GRASS, VEG_KIND_SWORD } veg_kind_t;
                                                 * body) is a NURSERY: courtship happens
                                                 * low in it and a fry is only born with
                                                 * one somewhere (2026-09-04) */
-#define VEG_SMOTHER 0.85f                      /* the SECOND-tallest bed past this =
+#define VEG_SMOTHER 0.85f                      /* the SECOND-tallest bed past this much
+                                                * of its OWN ceiling (tank_veg_cap) =
                                                 * smothered: real stress, trim it back.
                                                 * One bed at the ceiling is just a
                                                 * good place to hide. */
+/* Every frond has its own ceiling (2026-09-23): a hashed height in
+ * VEG_CAP_LO..VEG_CAP_HI it grows toward and never passes, so a grown bed is
+ * a ragged skyline in the top third of the glass instead of a wall touching
+ * the surface. Growth also eases off over the last VEG_CAP_TAPER of the way
+ * up, so the fronds settle one by one. Fixed per slot (bed, frond): nothing
+ * to save. The keeper (director `veg`, staging) may still set a frond
+ * higher; growth never pulls it back down. Height 1 = the surface. */
+#define VEG_CAP_LO  0.72f
+#define VEG_CAP_HI  0.95f
+#define VEG_CAP_TAPER 0.12f
 #define VEG_FRONDS_MAX 16                      /* per-bed frond slots (reef bed: 11-15) */
 #define VEG_SEGS_FULL 104                      /* frond segments at growth 1: the tip
                                                 * of the tallest frond touches y~10,
@@ -86,7 +97,8 @@ typedef enum { VEG_KIND_GRASS, VEG_KIND_SWORD } veg_kind_t;
                                                 * fry gate, 2026-09-16). Some film is
                                                 * fine; growth stops claiming cells at
                                                 * ALGAE_COVER_CAP (tank.c, 0.30), and one
-                                                * night's sleep films ~25% (selftest-tend) */
+                                                * night's sleep films ~17% (selftest-tend;
+                                                * ~25% before 2026-09-23) */
 
 typedef enum {
     GOAL_SEEK_FOOD, GOAL_FLEE_SHADOW, GOAL_VISIT_BUBBLES, GOAL_FOLLOW_FRIEND,
@@ -291,6 +303,27 @@ typedef struct tank {
      * spot) and its depth - BACK or FRONT only (see tank_decor_z_count). Both saved. */
     float    castle_x;
     uint8_t  castle_z;
+    /* the coral (2026-09-23): its centre x on the floor (<= 0 = the default
+     * spot), its depth (all three), and its colour as 0xRRGGBB (0 = the
+     * default, CORAL_PAL[0]) - the keeper picks it on the placement page. All saved. */
+    float    coral_x;
+    uint8_t  coral_z;
+    uint32_t coral_rgb;
+    float    coral_growth;         /* CORAL_START..CORAL_FULL: a stub to the full fan over ~CORAL_GROW_S,
+                                    * then the crown, awake or asleep alike (Strato, 2026-09-23:
+                                    * "something at a much different pace showing progression"). Saved. */
+    float    coral_acc;            /* awake seconds not yet applied: a frame's 1/60 s over 30 days is
+                                    * under float precision next to the growth, so it lands by the minute */
+    /* the reef cluster (2026-09-24, Strato's coral-cluster.png): a mature
+     * cluster on a rock - the branching coral, purple tube sponges, a brain
+     * coral, weed - bought big and still growing: its size first, then more
+     * and more swaying tentacles. Its centre x (<= 0 = the default), depth,
+     * colour SCHEME (CLUSTER_SCHEME_N preset looks) and growth. All saved. */
+    float    cluster_x;
+    uint8_t  cluster_z;
+    uint8_t  cluster_scheme;
+    float    cluster_growth;       /* CLUSTER_START..CLUSTER_FULL; 0..1 = it fills out, 1..FULL = the tentacles come */
+    float    cluster_acc;          /* awake seconds pooled, as coral_acc */
     /* keeper habits the tank remembers (persisted by progression.c) */
     float    feed_spot_x;          /* where the keeper usually feeds (EMA); <0 = unknown */
     int      player_feedings;      /* MEALS: feedings the fish ate from (2026-09-14, Strato: a tap
@@ -307,6 +340,15 @@ typedef struct tank {
     int8_t   court_a, court_b;     /* the parents-to-be (-1 = fewer than 2 grown fish) */
     float    court_cool;           /* seconds until the next courtship episode */
     float    court_active;         /* seconds left of the current episode */
+    /* the spawning (2026-09-24): a staged arrival is born in front of the
+     * keeper, not at a light-on. progression.c waits a few awake seconds,
+     * then sets `spawning`: the courting pair dives into the nursery grass
+     * and circles there with no episode clock; tank.c counts `spawn_danced`,
+     * the seconds both have spent circling in the fronds, and progression.c
+     * delivers the fry at SPAWN_DANCE_S. Not saved (a staged arrival is; a
+     * wake delivers it at once). */
+    bool     spawning;
+    float    spawn_danced;
     bool     ravenous;             /* starving tank: with empty water the fish
                                     * beg at the surface; the moment pellets
                                     * land they DASH for them (feeding frenzy).
@@ -317,7 +359,11 @@ typedef struct tank {
                                     * light stays on however still the device is
                                     * (2026-09-13, Strato: the tank went dark mid-name).
                                     * Not saved; a light override still wins. */
-    int8_t   stage_fish;           /* setup: this fish is being named / coloured - it swims
+    bool     ui_cover;             /* platform: a page covers the tank (setup, a prompt,
+                                    * milestones, settings, the shop) - a fry's spawning
+                                    * waits, so the keeper never misses it (2026-09-24).
+                                    * Set every frame; not saved. */
+    int8_t   stage_fish;          /* setup: this fish is being named / coloured - it swims
                                     * a slow loop at (stage_x, stage_y), the clear spot the
                                     * page leaves for it, so it is never behind the UI
                                     * (2026-09-13). -1 = nobody. Not saved. */
@@ -450,11 +496,14 @@ void  tank_veg_set(tank_t *t, int b, float g);
 /* the tallest bed at VEG_NURSERY or better, -1 if none (progression gates
  * courtship and arrivals on it; tank.c stages the courtship there) */
 int   tank_nursery_bed(const tank_t *t);
+/* a flirt of n bubbles rising from where the pair courts (the nursery) */
+void  tank_court_puff(tank_t *t, int n);
 /* the share of the glass wearing film, 0..1 (cells with any algae over all
  * cells - what the keeper sees covered, not how thick). > ALGAE_DIRTY = a
  * dirty tank: the fry checklist's GLASS gate (progression.c) */
 float tank_algae_cover(const tank_t *t);
 void  tank_veg_sync(tank_t *t);                 /* veg_growth[] from veg_h[][] (after a load) */
+float tank_veg_cap(int b, int i);               /* frond i of bed b: the height it grows toward */
 void  tank_grow_algae(tank_t *t, int steps);
 
 /* helpers shared with advisor/render/progression */
@@ -488,7 +537,7 @@ void  tank_set_bubble_x(tank_t *t, float x);
  * The items are bits in tank_t.sd_unlocks; progression.c sells them
  * (progression_buy) and tank.c gives them their place. A bought thing is in
  * the tank for good. */
-enum { SD_ITEM_PLANT = 1u << 0, SD_ITEM_SNAIL = 1u << 1, SD_ITEM_CASTLE = 1u << 2, SD_ITEM_COUNT = 3 };
+enum { SD_ITEM_PLANT = 1u << 0, SD_ITEM_SNAIL = 1u << 1, SD_ITEM_CASTLE = 1u << 2, SD_ITEM_CORAL = 1u << 3, SD_ITEM_CLUSTER = 1u << 4, SD_ITEM_COUNT = 5 };
 /* per-fish paid bits (sd_paid_fish) */
 enum { SD_PAID_JUV = 1u << 0, SD_PAID_ADULT = 1u << 1, SD_PAID_ELDER = 1u << 2, SD_PAID_TRUST = 1u << 3 };
 #define PX_PER_INCH 24.0f          /* the tank reads as ~15 in tall; a fish ~1.7 in */
@@ -501,6 +550,8 @@ veg_kind_t tank_veg_kind(const tank_t *t, int b);
 void  tank_plant_place(tank_t *t);
 void  tank_snail_place(tank_t *t);
 void  tank_castle_place(tank_t *t);
+void  tank_coral_place(tank_t *t);
+void  tank_cluster_place(tank_t *t);
 /* placing the decor (2026-09-16, Strato: a bought piece "should allow the
  * player to place the piece wherever they like", with a depth choice): a
  * placeable item has a centre x along the floor - clamped inside the
@@ -521,6 +572,57 @@ enum { DECOR_Z_BACK = 0, DECOR_Z_MIDDLE = 1, DECOR_Z_FRONT = 2, DECOR_Z_N = 3 };
  * (the keep behind them, the gate wall and the front towers over them). */
 #define CASTLE_HALF_W   92
 #define CASTLE_X_DEFAULT (TANK_W * 0.67f)
+/* the coral (2026-09-23, Strato's coral-single.png, drawn procedurally in
+ * render.c): a branching fan ~60 px wide and ~90 tall on the floor, item 3.
+ * All three depths; the default is AMONG - nestled in the reef bed's grass,
+ * the fish in front of it. Its colour is the keeper's: CORAL_PAL is the
+ * swatch row on its placement page (the fish colour page's idiom), the
+ * pick saved as RGB so a palette change never recolours a tank. */
+#define CORAL_HALF_W    30
+#define CORAL_X_DEFAULT (TANK_W * 0.335f)   /* upstream's 150 of 448 */
+/* both corals stand BEHIND or IN FRONT of the grass (no AMONG, like the
+ * castle) and are anchored: their base sits DECOR_SINK px down into the
+ * pebbles and a low mound of floor stones is drawn round it (render.c
+ * draw_floor_mound) - Strato, 2026-09-24: "it actually looks like they are
+ * hovering / pasted onto the [floor]" */
+#define DECOR_SINK      4
+#define CORAL_N         8
+#define CORAL_START     0.45f              /* a bought coral is young but ESTABLISHED: the trunk and the two
+                                            * low branches (Strato, 2026-09-23: a nub "is not satisfying ...
+                                            * some higher level of instant gratification"); ~17 days to the
+                                            * fan from here, the crown a week after */
+#define CORAL_FULL      1.25f              /* growth runs past the fan: 1.0 = the fan complete, then a
+                                            * ring of delicate tentacles sprouts from the top and reaches
+                                            * its full spread at CORAL_FULL (Strato, 2026-09-23) */
+#define CORAL_GROW_S    (30.0f * 86400.0f) /* stub -> the full fan in ~30 days of real time, the crown
+                                            * ~a week more; the branches come in one by one (render.c
+                                            * CORAL_SEGS' growth windows), a slow arc next to the grass's
+                                            * day. The fan tops out ~76 px up the glass, a quarter of the
+                                            * grass's ceilings - a modest thing, never a wall. */
+float    tank_coral_growth(const tank_t *t);      /* CORAL_START..CORAL_FULL (CORAL_FULL when unset) */
+/* the reef cluster (2026-09-24): item 4, the dearest thing in the shop. ~144
+ * x 120 px on the floor, all three depths, AMONG by default. It arrives
+ * MATURE (Strato: "the initial stage needs to look somewhat impressive and
+ * large") at CLUSTER_SIZE_MIN of its full size and fills out to full over
+ * the first CLUSTER_GROW_S, then from 1 to CLUSTER_FULL more and more
+ * tentacles sway from the tube mouths, the coral's tips and the brain. Three
+ * preset LOOKS (CLUSTER_SCHEMES: the coral / the tubes / the brain each), the
+ * placement page's row of three tiles picks one. */
+#define CLUSTER_HALF_W    72
+#define CLUSTER_X_DEFAULT (TANK_W * 0.737f) /* upstream's 330 of 448 */
+#define CLUSTER_START     0.0f
+#define CLUSTER_FULL      2.0f
+#define CLUSTER_SIZE_MIN  0.85f            /* its size on the day it is bought, of the full */
+#define CLUSTER_GROW_S    (14.0f * 86400.0f) /* two weeks to full size, two more for every tentacle */
+#define CLUSTER_SCHEME_N  3
+typedef struct { const char *name; uint32_t coral, tube, brain; } cluster_scheme_t;
+extern const cluster_scheme_t CLUSTER_SCHEMES[CLUSTER_SCHEME_N];
+float    tank_cluster_growth(const tank_t *t);    /* CLUSTER_START..CLUSTER_FULL (CLUSTER_FULL when unset) */
+int      tank_cluster_scheme(const tank_t *t);    /* 0..CLUSTER_SCHEME_N-1 */
+void     tank_cluster_set_scheme(tank_t *t, int i);
+extern const uint32_t CORAL_PAL[CORAL_N];
+uint32_t tank_coral_rgb(const tank_t *t);          /* the colour, the default when unset */
+void     tank_coral_set_rgb(tank_t *t, uint32_t rgb);
 bool  tank_decor_placeable(int item);      /* SD item index: has an x and a layer */
 int   tank_decor_z_count(int item);        /* depths the item offers: 3 (BACK/MIDDLE/FRONT) or 2 (BACK/FRONT) */
 int   tank_decor_z_at(int item, int i);    /* the i-th offered depth (the placement bar's segment i) */
@@ -529,6 +631,12 @@ void  tank_decor_set(tank_t *t, int item, float x, int z);
 float tank_decor_x(const tank_t *t, int item);   /* the centre, default when unplaced */
 int   tank_decor_z(const tank_t *t, int item);
 float tank_decor_half_w(int item);         /* half the footprint, for the page's clamp / highlight */
+/* the owned, placeable piece under (x, y) - its footprint box on the floor -
+ * or -1 (2026-09-24: a tap-and-hold on a piece opens its page); the smaller
+ * pieces win a tie. tank_decor_reset puts a SOLD piece back to its factory
+ * state so a later purchase starts fresh. */
+int   tank_decor_hit(const tank_t *t, float x, float y);
+void  tank_decor_reset(tank_t *t, int item);
 /* the snail has two poses (Strato's sprites, 2026-09-15): UPRIGHT, walking
  * the tank floor (nothing to graze: it comes down and ambles along the
  * bottom, turning at the ends), and flat ON THE GLASS (crawling to film and

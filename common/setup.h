@@ -101,6 +101,7 @@ enum { SETUP_PG_PLACE = SETUP_PG_BIRTH_END };
 /* element ids (setup_hit / setup_activate) */
 #define SETUP_HIT_NEXT  1
 #define SETUP_HIT_BACK  2
+#define SETUP_HIT_SELL  5                /* the placement page's SELL (top left): once arms it, twice sells the piece */
 #define SETUP_HIT_UP    3                /* the active slot's letter: next (A -> B) */
 #define SETUP_HIT_DOWN  4                /* ... previous */
 #define SETUP_HIT_SLOT0 10               /* + 0..FISH_NAME_MAX-1: pick that slot */
@@ -110,6 +111,7 @@ enum { SETUP_PG_PLACE = SETUP_PG_BIRTH_END };
 #define SETUP_KEY_PAGE  27
 #define SETUP_KEY_N     28
 #define SETUP_HIT_Z0    60               /* + DECOR_Z_BACK..FRONT: the placement page's layer row */
+#define SETUP_HIT_COLOR0 80              /* + 0..CORAL_N-1: the coral's colour swatches (its placement page) */
 
 /* geometry (tank coordinates), shared by the drawing, the hit test and the
  * sim's selftest. The panelled pages (welcome, colours, care) sit inside the
@@ -184,6 +186,27 @@ enum { SETUP_PG_PLACE = SETUP_PG_BIRTH_END };
 #define SETUP_DEPTH_TILE_H 40
 #define SETUP_DEPTH_HINT_Y (SETUP_DEPTH_Y + SETUP_DEPTH_H + 8)
 #define SETUP_PLACE_Y      (SETUP_DEPTH_HINT_Y + 20)
+/* the coral's placement page (2026-09-23) trades the hint line for a COLOR
+ * row: CORAL_N swatches at the colour page's pitch, shorter (42 x 26), the
+ * chosen one ringed; the coral on the floor below wears the pick at once.
+ * The drag zone starts under the row. */
+#define SETUP_COL_N   CORAL_N
+#define SETUP_COL_PX  SETUP_SW_PX
+#define SETUP_COL_W   SETUP_SW_W
+#define SETUP_COL_H   26
+#define SETUP_COL_X   ((TANK_W - (SETUP_COL_N - 1) * SETUP_COL_PX - SETUP_COL_W) / 2)
+#define SETUP_COL_Y   (SETUP_DEPTH_Y + SETUP_DEPTH_H + 22)
+#define SETUP_PLACE_CORAL_Y (SETUP_COL_Y + SETUP_COL_H + 8)
+/* the reef cluster's page (2026-09-24): a LOOK row of CLUSTER_SCHEME_N tiles
+ * in the COLOR row's place, each three bands (the coral, the tubes, the
+ * brain) over the look's name; SETUP_HIT_COLOR0 + i picks it */
+#define SETUP_LOOK_N   CLUSTER_SCHEME_N
+#define SETUP_LOOK_W   110
+#define SETUP_LOOK_PX  118
+#define SETUP_LOOK_H   36
+#define SETUP_LOOK_X   ((TANK_W - (SETUP_LOOK_N - 1) * SETUP_LOOK_PX - SETUP_LOOK_W) / 2)
+#define SETUP_LOOK_Y   SETUP_COL_Y
+#define SETUP_PLACE_CLUSTER_Y (SETUP_LOOK_Y + SETUP_LOOK_H + 8)
 /* the stage: the clear spot each page leaves for the fish being edited
  * (tank_t.stage_*), top centre between the buttons */
 #define SETUP_STAGE_X   (TANK_W / 2)
