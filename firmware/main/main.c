@@ -692,5 +692,12 @@ void app_main(void) {
             heap_caps_free(tmp);
         }
     }
-    xTaskCreatePinnedToCore(tank_task, "tank", 12288, NULL, 4, NULL, 0);
+    /* checked (2026-09-26): on the square tank with the model loaded this once
+       found no 12 KB of internal RAM, and the tank - rendering, touch, the
+       log - silently never started */
+    if (xTaskCreatePinnedToCore(tank_task, "tank", 12288, NULL, 4, NULL, 0) != pdPASS)
+        ESP_LOGE(TAG, "the tank task could NOT be created: %u KB internal free, largest block %u KB - nothing will render",
+                 (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
+                 (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) / 1024));
+    else ESP_LOGI(TAG, "tank task up: %u KB internal free after it", (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024));
 }
