@@ -1,0 +1,23 @@
+# pocket-tank preflight 2026-09-23_2148 on /dev/cu.usbmodem2101
+I (733074) batlog: 3 samples (h:mm since the first | SoC | VBAT | bright | state | mA since previous)
+I (733074) batlog:     0:00 |  54% | 3856 mV |   0 | asleep | bed
+I (733079) batlog:     0:40 |  55% | 3973 mV | 153 | awake  | boot     -2.9 mA
+I (733085) batlog:     0:45 |  59% | 4010 mV | 153 | awake  |         -96.0 mA
+I (733092) batlog:   awake:  0.1 h, -8 mAh -> -96 mA average
+I (733097) batlog:   asleep: 0.7 h, -2.0 mAh -> -2.95 mA average
+I (733103) batlog:   (SoC is 1% = 2 mAh; short awake windows are coarse, a night is not)
+I (737128) director: 0 lori   elder age 34.7h size 1.45 hunger 5.0 energy 5.2 stress 1.3 curiosity 8.3 trust 8.3 ms f3f  explore at 215,120
+I (737130) director: 1 mira   elder age 34.7h size 1.57 hunger 4.1 energy 3.8 stress 1.3 curiosity 9.8 trust 8.3 ms f3f  visit_bubbles at 212,185
+I (737143) director: 2 bolt   elder age 31.2h size 1.29 hunger 4.3 energy 5.5 stress 1.3 curiosity 0.0 trust 5.9 ms f3f  visit_bubbles at 162,137
+I (737156) director: 3 sol    adult age 8.7h size 1.17 hunger 4.1 energy 3.1 stress 1.3 curiosity 10.0 trust 5.3 ms 73f  explore at 159,295
+I (737168) director: pellets 0 | trickle on | ravenous 0 | day idle 7s | veg 0.04 0.04 0.04 | algae cells 0/644 | courting no | arrival -
+I (737180) director: sand dollars 864 (earned 1134) | shop: plant snail | colonies 360 | 3057.0 in trimmed
+I (737190) director: snail at 293,186 heading 90 deg | no target, cell -1 at -1,-1 (film 0) | 0 cells on the glass | 241 grazed so far
+I (737202) director: bed 0 fronds (x from 19, pitch 12): 0.04 0.04 0.04 0.04 0.04 0.04 0.04 0.04 0.04 0.04 0.04 0.04 0.04 0.04 0.04
+I (737213) director: bed 1 fronds (x from 376, pitch 12): 0.04 0.04 0.04 0.04 0.04
+I (737220) director: bed 2 fronds (x from 278, pitch 12): 0.04 0.04 0.04 0.04 0.04 0.04 0.04 0.04
+I (737229) director: bed 3 leaves (x from 113, pitch 14): 0.04 0.04 0.04 0.04
+I (737236) director: plant placed: centre x 134 (the keeper's), depth IN FRONT of the fish
+I (737244) director: castle placed: centre x 253 (the keeper's), BEHIND the grass
+I (737251) director: nursery bed -1 (a bed >= 0.12) | parked real tank: no (this IS the real tank)
+I (737260) director: battery 61% charging, VBAT 4031 mV | brightness 153/255 (level 60%)

@@ -9,6 +9,7 @@
 #include "setup.h"
 #include <math.h>
 #include <string.h>
+#include <stdlib.h>
 #include <stdio.h>
 
 #define TAU 6.2831853f
@@ -717,6 +718,275 @@ static void draw_castle_front_rect(ctx_t *c, int cx, int x0, int y0, int x1, int
     draw_castle(&cc, cx, 1, true);
 }
 
+/* ---- the coral, procedural (2026-09-23; Strato's coral-single.png: a
+ * branching orange fan in chunky pixel art - rounded branches, a dark red
+ * rim, sunlit yellow tips). Built ONCE as a tone sprite on a 2 px cell grid
+ * (CORAL_CW x CORAL_CH cells): a skeleton of capsules (the trunk and its
+ * branches), each cell classed by its signed distance to the nearest one -
+ * the rim, a lit edge up-left, the tips, and a hashed speckle inside. The
+ * colour is the keeper's (tank_coral_rgb): five tones derived from it and
+ * hazed with the water per row, like the castle's stone. ~60 x 92 px. */
+#define CORAL_CELL 2
+#define CORAL_CW   32
+#define CORAL_CH   46
+#define CORAL_W    (CORAL_CW * CORAL_CELL)
+#define CORAL_H    (CORAL_CH * CORAL_CELL)
+#define CORAL_FY   (TANK_H - 14 + DECOR_SINK)   /* the base, sunk into the pebbles (a mound covers the joint) */
+enum { CO_NONE = 0, CO_RIM, CO_BODY, CO_SHADE, CO_LIT, CO_TIP, CO_N };
+static int      g_coral_q = -1;               /* the growth step the sprite was built for (CORAL_Q steps) */
+#define CORAL_Q 128                           /* ~5.6 h per step over the 30 days: a rebuild each */
+static int      g_coral_cells;                /* filled cells in the sprite (the selftest) */
+static uint32_t g_coral_rgb = 1;              /* what the rows hold (1 = never) */
+static float    g_coral_dim = -1;
+/* the decor scratch (2026-09-24): every table the coral and the reef cluster
+ * build - sprites, tinted rows, the distance grids - lives in ONE block the
+ * platform hands over (render_set_decor_scratch: the firmware gives PSRAM,
+ * since internal RAM is down to ~23 KB free and the display driver needs
+ * 57 KB of DMA memory at boot - the first cluster build's statics cost it
+ * that and the tank booted black). Without one it is calloc'd (the sim). */
+#define CL_CW   72
+#define CL_CH   60
+#define CL_H    (CL_CH * 2)
+#define CL_TONES (1 + 5 * 5)
+typedef struct {
+    uint8_t  co_sprite[CORAL_CH][CORAL_CW];
+    uint16_t co_row[CO_N][CORAL_H];           /* [tone][row], row 0 = CORAL_FY - CORAL_H */
+    int8_t   co_sd[CORAL_CH][CORAL_CW];
+    uint8_t  co_tp[CORAL_CH][(CORAL_CW + 7) / 8];
+    uint8_t  cl_sprite[CL_CH][CL_CW];
+    uint16_t cl_row[CL_TONES][CL_H];
+    int8_t   cl_sd[CL_CH][CL_CW];
+    uint8_t  cl_dp[CL_CH][(CL_CW + 7) / 8];
+} decor_scratch_t;
+static decor_scratch_t *g_ds;
+size_t render_decor_scratch_size(void) { return sizeof(decor_scratch_t); }
+void   render_set_decor_scratch(void *buf) { g_ds = (decor_scratch_t *)buf; if (g_ds) memset(g_ds, 0, sizeof *g_ds); g_coral_q = -1; g_coral_rgb = 1; }
+static inline decor_scratch_t *ds(void) { if (!g_ds) g_ds = (decor_scratch_t *)calloc(1, sizeof(decor_scratch_t)); return g_ds; }
+typedef struct { float x0, y0, x1, y1, r; uint8_t tip; float g0, g1; } coral_seg_t;
+/* cell coordinates, x from the left edge, y UP from the base row. g0..g1 is
+ * the segment's GROWTH window (tank_coral_growth, 2026-09-23): absent below
+ * g0, reaching out along its line until g1 - a child branch's window opens
+ * where its parent's closes, so the fan comes in trunk first, low branches,
+ * then the crown over the month. */
+static const coral_seg_t CORAL_SEGS[] = {
+    { 16, 0, 17, 20, 3.0f, 0, 0.00f, 0.30f },   /* the trunk: thick, like the art's */
+    { 17, 20, 18, 33, 2.7f, 0, 0.30f, 0.60f },
+    { 18, 33, 18, 41, 2.3f, 1, 0.60f, 0.85f },  /* its tip */
+    { 16, 7, 6, 15, 2.5f, 0, 0.12f, 0.40f },    /* left, low */
+    { 6, 15, 3, 22, 2.2f, 1, 0.40f, 0.62f },
+    { 17, 12, 26, 18, 2.4f, 0, 0.20f, 0.48f },  /* right, low */
+    { 26, 18, 29, 25, 2.1f, 1, 0.48f, 0.70f },
+    { 17, 20, 9, 28, 2.4f, 0, 0.36f, 0.62f },   /* left, mid */
+    { 9, 28, 7, 35, 2.1f, 1, 0.62f, 0.82f },
+    { 18, 26, 25, 33, 2.3f, 0, 0.45f, 0.72f },  /* right, mid */
+    { 25, 33, 27, 40, 2.0f, 1, 0.72f, 0.92f },
+    { 18, 31, 12, 39, 2.2f, 1, 0.62f, 1.00f },  /* left, high: the last to finish */
+    { 17, 3, 22, 7, 1.9f, 1, 0.05f, 0.20f },    /* a nub */
+};
+#define CORAL_NSEG ((int)(sizeof CORAL_SEGS / sizeof CORAL_SEGS[0]))
+/* signed distance to the skeleton AT growth g, in cells; *tip = within a
+ * lit cap (a finished tip's, or the reaching end of a branch still growing) */
+#define CORAL_Y_SCALE 0.88f                                  /* the fan tops out ~76 px up (Strato: a modest height, never the grass's) */
+#define CORAL_TOP_X   18.0f                                  /* the crown's root: the trunk tip's end, in cells */
+#define CORAL_TOP_Y   (41.0f * CORAL_Y_SCALE)
+static float coral_sd(float px, float py, float g, bool *tip) {
+    float best = 1e9f; *tip = false;
+    if (g > 1) g = 1;
+    float thin = 0.72f + 0.28f * g;                          /* a young coral is slimmer all over */
+    for (int i = 0; i < CORAL_NSEG; i++) {
+        const coral_seg_t *s = &CORAL_SEGS[i];
+        float f = (g - s->g0) / (s->g1 - s->g0);             /* how far along its line it has reached */
+        if (f <= 0) continue;
+        if (f > 1) f = 1;
+        float sy0 = s->y0 * CORAL_Y_SCALE, sy1 = s->y1 * CORAL_Y_SCALE;
+        float x1 = s->x0 + (s->x1 - s->x0) * f, y1 = sy0 + (sy1 - sy0) * f;
+        float r = s->r * thin * (0.75f + 0.25f * f);
+        float dx = x1 - s->x0, dy = y1 - sy0, len2 = dx * dx + dy * dy;
+        float u = len2 > 1e-6f ? ((px - s->x0) * dx + (py - sy0) * dy) / len2 : 0;
+        if (u < 0) u = 0;
+        if (u > 1) u = 1;
+        float ex = px - (s->x0 + dx * u), ey = py - (sy0 + dy * u);
+        float d = sqrtf(ex * ex + ey * ey) - r;
+        if (d < best) best = d;
+        if (s->tip || f < 1) {                               /* the lit cap: the last r + 1 cells of a tip */
+            float tx = px - x1, ty = py - y1;
+            if (tx * tx + ty * ty <= (r + 0.6f) * (r + 0.6f)) *tip = true;
+        }
+    }
+    return best;
+}
+/* the distance grids are int8 eighths of a cell (the sign and the few
+ * thresholds are all the classing needs): internal RAM is tight on the
+ * board - the float grids of 2026-09-24 morning cost the display driver its
+ * semaphore and the tank booted black */
+static inline int8_t sd_q(float d) { d *= 8; return (int8_t)(d < -127 ? -127 : d > 127 ? 127 : d); }
+static void coral_build(float g) {
+    int8_t  (*sd)[CORAL_CW] = ds()->co_sd;
+    uint8_t (*tp)[(CORAL_CW + 7) / 8] = ds()->co_tp;
+    g_coral_cells = 0;
+    for (int j = 0; j < CORAL_CH; j++)
+        for (int i = 0; i < CORAL_CW; i++) {
+            bool tip; sd[j][i] = sd_q(coral_sd(i + 0.5f, (CORAL_CH - 1 - j) + 0.5f, g, &tip));
+            if (tip) tp[j][i >> 3] |= (uint8_t)(1 << (i & 7)); else tp[j][i >> 3] &= (uint8_t)~(1 << (i & 7));
+        }
+    for (int j = 0; j < CORAL_CH; j++)
+        for (int i = 0; i < CORAL_CW; i++) {
+            int d = sd[j][i];
+            bool tip = (tp[j][i >> 3] >> (i & 7)) & 1;
+            uint8_t t = CO_NONE;
+            if (d < 0) {
+                /* the light comes from the upper left (the art's): an edge cell
+                   with open water above or to its left is LIT, one with open
+                   water below or to its right is the dark rim - the outline
+                   that keeps the branches apart */
+                bool out_l = i == 0 || sd[j][i - 1] >= 0, out_u = j == 0 || sd[j - 1][i] >= 0;
+                bool out_r = i == CORAL_CW - 1 || sd[j][i + 1] >= 0, out_d = j == CORAL_CH - 1 || sd[j + 1][i] >= 0;
+                bool edge = out_l || out_u || out_r || out_d;
+                if (tip) t = (out_r || out_d) && !(out_l || out_u) ? CO_RIM : CO_TIP;
+                else if (edge) t = (out_r || out_d) ? CO_RIM : CO_LIT;
+                else {
+                    uint32_t h = chash(i, j) % 100;
+                    t = h < 22 ? CO_SHADE : h < 28 ? CO_LIT : CO_BODY;
+                }
+            }
+            ds()->co_sprite[j][i] = t;
+            g_coral_cells += t != CO_NONE;
+        }
+}
+int render_coral_cells(float growth) {                       /* the selftest: how much coral there is at a growth */
+    coral_build(growth); g_coral_q = -1;
+    return g_coral_cells;
+}
+static void coral_tint_fill(uint32_t rgb, float dim) {
+    if (g_coral_rgb == rgb && g_coral_dim == dim) return;
+    uint32_t tone[CO_N];
+    tone[CO_NONE]  = 0;
+    tone[CO_RIM]   = mix(rgb, 0x30060e, 0.58f);
+    tone[CO_BODY]  = rgb;
+    tone[CO_SHADE] = mix(rgb, 0x000000, 0.24f);
+    tone[CO_LIT]   = mix(rgb, 0xfff0b0, 0.36f);
+    tone[CO_TIP]   = mix(rgb, 0xffe8a0, 0.58f);
+    for (int r = 0; r < CORAL_H; r++) {
+        int y = CORAL_FY - CORAL_H + r;
+        uint32_t w = water_rgb(y < 0 ? 0 : y >= TANK_H ? TANK_H - 1 : y);
+        for (int k = 1; k < CO_N; k++) ds()->co_row[k][r] = rgb565(mix(w, tone[k], k == CO_TIP ? 0.94f : 0.90f), dim);   /* a light haze: the art's colour stays saturated */
+    }
+    g_coral_rgb = rgb; g_coral_dim = dim;
+}
+/* the crown (2026-09-23, Strato: "after it's fully grown it should sprout a
+ * ring of delicate tentacles out of the top"): CORAL_TENT one-pixel
+ * filaments fanning up and out from the trunk's tip once growth passes 1,
+ * reaching CORAL_TENT_L px at CORAL_FULL, each swaying on its own phase with
+ * the tank clock and ending in a bright bead. Drawn every frame over the
+ * body (dynamic: the caller's rect covers the vignette), so the crown moves
+ * while the fan stands still. Returns its bounding box through the pointers. */
+#define CORAL_TENT   9
+#define CORAL_TENT_L 15.0f
+/* a fan of n one-pixel tentacles from (ox, oy), angles a0..a1 (screen
+ * radians: -pi/2 is straight up), each `len` px, swaying on the tank clock
+ * with its own phase (seed), a bright bead at the end; the bounding box
+ * through the pointers (x1 < x0 = nothing drawn). The coral's crown and the
+ * cluster's bloom both use it (2026-09-24). */
+static void draw_crown(ctx_t *c, float ox, float oy, int n_t, float a0, float a1, float len, uint32_t pale,
+                       int seed, float clock, int *bx0, int *by0, int *bx1, int *by1) {
+    *bx0 = *by0 = 1 << 20; *bx1 = *by1 = -1;
+    if (n_t < 1) return;
+    uint32_t bead = mix(pale, 0xffffff, 0.55f);
+    for (int k = 0; k < n_t; k++) {
+        float a = n_t == 1 ? (a0 + a1) * 0.5f : a0 + (a1 - a0) * k / (n_t - 1);
+        float sway = 0.22f * fast_sin(clock * 1.3f + (k + seed) * 0.9f);
+        float lx = ox, ly = oy;
+        int n = (int)(len + 0.5f);
+        for (int i = 1; i <= n; i++) {
+            float s = (float)i / n;
+            float ang = a + sway * s + (k - (n_t - 1) * 0.5f) * 0.05f * s;   /* the outer ones curl outward */
+            float x = ox + cosf(ang) * len * s, y = oy + sinf(ang) * len * s;
+            int ix = (int)(x + 0.5f), iy = (int)(y + 0.5f);
+            if (ix == (int)(lx + 0.5f) && iy == (int)(ly + 0.5f)) continue;
+            px_blend(c, ix, iy, i == n ? bead : pale, i == n ? 255 : 190);
+            if (ix < *bx0) *bx0 = ix;
+            if (ix > *bx1) *bx1 = ix;
+            if (iy < *by0) *by0 = iy;
+            if (iy > *by1) *by1 = iy;
+            lx = x; ly = y;
+        }
+    }
+    if (*bx1 >= *bx0) { *bx0 -= 1; *by0 -= 1; *bx1 += 1; *by1 += 1; }
+}
+static void draw_coral_crown(ctx_t *c, int cx, uint32_t rgb, float growth, float clock,
+                             int *bx0, int *by0, int *bx1, int *by1) {
+    float phase = (growth - 1.0f) / (CORAL_FULL - 1.0f);
+    *bx0 = *by0 = 1 << 20; *bx1 = *by1 = -1;
+    if (phase <= 0) return;
+    if (phase > 1) phase = 1;
+    float ox = cx - CORAL_W / 2 + CORAL_TOP_X * CORAL_CELL + 1, oy = CORAL_FY - CORAL_TOP_Y * CORAL_CELL - 1;
+    float len = CORAL_TENT_L * (0.35f + 0.65f * phase);
+    /* a fan from ~29 deg left of up to 29 deg right, past the horizontal */
+    draw_crown(c, ox, oy, CORAL_TENT, -3.14159f * 0.16f, -3.14159f * 0.84f, len, mix(rgb, 0xffffff, 0.55f), 0, clock, bx0, by0, bx1, by1);
+}
+/* a low mound of floor stones round a piece's base (2026-09-24): the same
+ * pebble tones and position hash as the floor, an ellipse half_w wide whose
+ * crest sits 6 px above the base line and whose skirt runs 3 px below it,
+ * drawn AFTER the piece so its bottom rows are buried - the coral's trunk
+ * and the cluster's rock grow out of the floor instead of standing on it.
+ * final: vignetted and untagged here (the scene-cache path). */
+static void draw_floor_mound(ctx_t *c, int cx, int half_w, int rise, bool final) {
+    const int fl = TANK_H - 14;                                          /* the floor line: the pebbles' highest top */
+    for (int y = fl - rise; y <= fl + 4; y++) {
+        if (y < 0 || y >= TANK_H) continue;
+        float w = ell_half((y - (fl + 2)) / (float)(rise + 2));           /* an ellipse whose crest is `rise` px above the floor line */
+        if (w <= 0) continue;
+        int half = (int)(half_w * w);
+        for (int x = cx - half; x <= cx + half; x++) {
+            if (!CTX_IN(c, x, y)) continue;
+            uint32_t h2 = (uint32_t)((x * 73856093u) ^ (y * 19349663u));
+            uint32_t tone = (h2 >> 4) % 16;
+            uint32_t col = tone < 2 ? 0x2e3b2c : tone < 5 ? 0x22301f : tone < 8 ? 0x1a2418 : 0x101a12;
+            float up = (float)(fl - y) / rise;                           /* 0 at the floor line, 1 at the crest */
+            if (up > 0) col = mix(col, 0x56684f, 0.25f + 0.40f * up);   /* the hump rises into the light; its skirt is the floor */
+            if (up > 0.15f && (chash(x, y) & 15) == 0) col = 0x6e7f66;   /* a few lit grains */
+            uint16_t *p = &CTX_PX(c, x, y);
+            *p = rgb565(col, c->dim);
+            if (final) {
+                int a = g_vig ? g_vig[y * TANK_W + x] : vig_alpha(x, y);
+                if (a) px_darken(p, a);
+                if (g_dirty) g_dirty[y * DIRTY_WORDS_PER_ROW + (x >> 5)] &= ~(1u << (x & 31));
+            }
+        }
+    }
+}
+/* the coral at centre x (its base on the floor), in the keeper's colour.
+ * final: vignetted here and untagged (the scene-cache path); otherwise the
+ * frame's own sweep does it */
+static void draw_coral(ctx_t *c, int cx, uint32_t rgb, float growth, bool final) {
+    if (growth > 1) growth = 1;
+    int q = (int)(growth * (CORAL_Q - 0.01f));
+    if (q != g_coral_q) { coral_build(growth); g_coral_q = q; }
+    coral_tint_fill(rgb, c->dim);
+    int x0 = cx - CORAL_W / 2, y0 = CORAL_FY - CORAL_H;
+    for (int j = 0; j < CORAL_CH; j++)
+        for (int i = 0; i < CORAL_CW; i++) {
+            uint8_t t = ds()->co_sprite[j][i];
+            if (!t) continue;
+            for (int dy = 0; dy < CORAL_CELL; dy++) {
+                int y = y0 + j * CORAL_CELL + dy;
+                uint16_t v = ds()->co_row[t][j * CORAL_CELL + dy];
+                for (int dx = 0; dx < CORAL_CELL; dx++) {
+                    int x = x0 + i * CORAL_CELL + dx;
+                    if (!CTX_IN(c, x, y)) continue;
+                    uint16_t *p = &CTX_PX(c, x, y);
+                    *p = v;
+                    if (final) {
+                        int a = g_vig ? g_vig[y * TANK_W + x] : vig_alpha(x, y);
+                        if (a) px_darken(p, a);
+                        if (g_dirty) g_dirty[y * DIRTY_WORDS_PER_ROW + (x >> 5)] &= ~(1u << (x & 31));
+                    }
+                }
+            }
+        }
+    draw_floor_mound(c, cx, CORAL_HALF_W - 4, 9, final);              /* anchored: the trunk grows out of a hump of stones */
+}
+
 /* ---- the snail, procedural (2026-09-16; Strato: "explore doing the same
  * for the snail so the aesthetic matches") ----
  * Drawn the castle's way in place of the two sprites: a little geometry with
@@ -887,6 +1157,235 @@ static bool castle_state(const tank_t *t, int *cx, int *z, bool *placing) {
     return true;
 }
 static int g_scene_castle_x = -2, g_scene_castle_z = -1;   /* what the baked scene holds (-1 = no castle) */
+/* the coral likewise (2026-09-23): BEHIND it is baked into the scene; AMONG
+ * and IN FRONT it is drawn every frame (a 60 x 92 sprite - cheap) */
+static bool coral_state(const tank_t *t, int *cx, int *z, bool *placing) {
+    if (!(t->sd_unlocks & SD_ITEM_CORAL)) { *cx = -1; *z = DECOR_Z_MIDDLE; *placing = false; return false; }
+    *cx = (int)tank_decor_x(t, 3); *z = tank_decor_z(t, 3);
+    *placing = setup_is_place() && setup_item() == 3;
+    return true;
+}
+
+/* ---- the reef cluster, procedural (2026-09-24; Strato's coral-cluster.png:
+ * a branching coral, three purple tube sponges, a cyan brain coral and green
+ * weed on a pile of grey stones). The same idiom as the coral, bigger: a
+ * CL_CW x CL_CH grid of 2 px cells, five ELEMENTS drawn in painter's order
+ * (rock, weed, the coral, the tubes, the brain, weed in front), each classed
+ * by its own signed distance - rim below / right, lit above / left, a deep
+ * variant per element (moss on the rock, the coral's tips, the tube mouths,
+ * the brain's grooves, the weed's tips) - into one tone sprite. The size is
+ * the growth's first phase: CLUSTER_SIZE_MIN of full on the day it is bought
+ * (it must look mature at once), full at 1. The look is a scheme (three
+ * presets: the coral / the tubes / the brain each), tinted per row. */
+#define CL_CELL 2
+#define CL_W    (CL_CW * CL_CELL)
+#define CL_FY   (TANK_H - 14 + DECOR_SINK)
+#define CL_Q    64                                           /* sprite rebuilds over the size phase */
+enum { CLE_ROCK, CLE_WEED, CLE_CORAL, CLE_TUBE, CLE_BRAIN, CLE_N };
+enum { CLV_BODY, CLV_LIT, CLV_RIM, CLV_SHADE, CLV_DEEP, CLV_N };
+#define CL_TONE(e, v) (1 + (e) * CLV_N + (v))
+static int      g_cl_q = -1, g_cl_cells;
+static int      g_cl_scheme = -1; static float g_cl_dim = -1;
+/* geometry in unscaled cells: x from the left, y UP from the base row; the
+ * size scales it about (36, 0) */
+#define CL_CX 36.0f
+typedef struct { float x0, y0, x1, y1, r; } cl_cap_t;
+static const cl_cap_t CL_ROCKS[] = {                         /* stones, as capsules (a circle = a zero-length one) */
+    { 8, 3, 8, 3, 6 }, { 20, 4, 20, 4, 7 }, { 33, 3, 33, 3, 6 }, { 46, 4, 46, 4, 7 }, { 58, 3, 58, 3, 6 }, { 66, 4, 66, 4, 5 },
+    { 14, 7, 14, 7, 4 }, { 40, 7, 40, 7, 4 }, { 52, 8, 52, 8, 4 }, { 4, 6, 70, 6, 2.5f },
+};
+static const cl_cap_t CL_TUBES[] = {                         /* back to front */
+    { 45, 5, 44, 22, 4.5f }, { 61, 4, 63, 27, 5.0f }, { 52, 4, 53, 34, 5.5f }, { 58, 3, 59, 13, 3.5f },
+};
+static const cl_cap_t CL_BRAIN[] = {
+    { 35, 9, 35, 9, 7 }, { 28, 7, 28, 7, 5.5f }, { 42, 7, 42, 7, 5.5f }, { 35, 14, 35, 14, 5 }, { 31, 12, 31, 12, 4 }, { 39, 12, 39, 12, 4 },
+};
+static const cl_cap_t CL_WEED_BACK[] = {
+    { 13, 3, 11, 11, 1.1f }, { 14, 3, 15, 12, 1.1f }, { 12, 3, 9, 9, 1.0f },
+    { 30, 3, 29, 10, 1.1f }, { 31, 3, 33, 11, 1.0f },
+    { 47, 3, 48, 12, 1.1f }, { 46, 3, 44, 10, 1.0f },
+    { 66, 3, 68, 11, 1.1f }, { 65, 3, 63, 9, 1.0f }, { 67, 3, 67, 12, 1.0f },
+};
+static const cl_cap_t CL_WEED_FRONT[] = {
+    { 21, 2, 19, 9, 1.1f }, { 22, 2, 24, 8, 1.0f }, { 41, 2, 43, 8, 1.0f }, { 40, 2, 39, 7, 1.0f }, { 56, 2, 57, 8, 1.0f },
+};
+#define CL_CORAL_X  24.0f                                    /* the branching coral's base, and its scale */
+#define CL_CORAL_Y  5.0f
+#define CL_CORAL_SX 0.95f
+#define CL_CORAL_SY 0.85f
+static inline float cl_cap_sd(float px, float py, const cl_cap_t *k, float rs) {
+    float dx = k->x1 - k->x0, dy = k->y1 - k->y0, len2 = dx * dx + dy * dy;
+    float u = len2 > 1e-6f ? ((px - k->x0) * dx + (py - k->y0) * dy) / len2 : 0;
+    if (u < 0) u = 0;
+    if (u > 1) u = 1;
+    float ex = px - (k->x0 + dx * u), ey = py - (k->y0 + dy * u);
+    return sqrtf(ex * ex + ey * ey) - k->r * rs;
+}
+/* an element's signed distance at an unscaled point; *deep = the element's
+ * deep variant here (a tube's mouth, a brain groove, the coral's tip cap) */
+static float cl_sd(int e, int pass, float px, float py, bool *deep) {
+    float best = 1e9f; *deep = false;
+    if (e == CLE_ROCK) {
+        for (int i = 0; i < (int)(sizeof CL_ROCKS / sizeof CL_ROCKS[0]); i++) { float d = cl_cap_sd(px, py, &CL_ROCKS[i], 1); if (d < best) best = d; }
+        *deep = best < -1.5f && py > 4 && (chash((int)(px * 0.7f), (int)(py * 0.7f)) % 100) < 22;   /* moss between the stones */
+    } else if (e == CLE_WEED) {
+        const cl_cap_t *w = pass ? CL_WEED_FRONT : CL_WEED_BACK; int n = pass ? (int)(sizeof CL_WEED_FRONT / sizeof w[0]) : (int)(sizeof CL_WEED_BACK / sizeof w[0]);
+        for (int i = 0; i < n; i++) { float d = cl_cap_sd(px, py, &w[i], 1); if (d < best) best = d;
+            float tx = px - w[i].x1, ty = py - w[i].y1; if (tx * tx + ty * ty < 2.2f) *deep = true; }
+    } else if (e == CLE_CORAL) {
+        float qx = (px - CL_CORAL_X) / CL_CORAL_SX + 16.0f, qy = (py - CL_CORAL_Y) / CL_CORAL_SY;   /* into the coral's own cells */
+        bool tip; best = coral_sd(qx, qy, 1.0f, &tip) * CL_CORAL_SY; *deep = tip;
+    } else if (e == CLE_TUBE) {
+        const cl_cap_t *k = &CL_TUBES[pass];
+        best = cl_cap_sd(px, py, k, 1);
+        float mx = (px - k->x1) / (k->r - 1.3f), my = (py - k->y1) / 1.7f;
+        *deep = mx * mx + my * my < 1;                           /* the mouth */
+    } else if (e == CLE_BRAIN) {
+        float second = 1e9f;                                     /* the lobes: the seam where two meet is a groove */
+        for (int i = 0; i < (int)(sizeof CL_BRAIN / sizeof CL_BRAIN[0]); i++) {
+            float d = cl_cap_sd(px, py, &CL_BRAIN[i], 1);
+            if (d < best) { second = best; best = d; } else if (d < second) second = d;
+        }
+        float v = fast_sin(px * 1.3f + py * 0.9f) + 0.6f * fast_sin(py * 2.1f - px * 0.5f);
+        *deep = best < -0.8f && ((second < 0.5f && second > -1.2f) || v > 0.95f);   /* the seams, and a few winding grooves */
+    }
+    return best;
+}
+/* one element pass over the sprite: classed by its own distance field and
+ * painted over what is there */
+static void cl_paint(int e, int pass, float s) {
+    int8_t  (*sd)[CL_CW] = ds()->cl_sd;                         /* eighths of a cell; the deep flags as bits (see sd_q) */
+    uint8_t (*dp)[(CL_CW + 7) / 8] = ds()->cl_dp;
+    for (int j = 0; j < CL_CH; j++)
+        for (int i = 0; i < CL_CW; i++) {
+            float px = CL_CX + (i + 0.5f - CL_CX) / s, py = (CL_CH - 1 - j + 0.5f) / s;   /* unscale the query */
+            bool deep; sd[j][i] = sd_q(cl_sd(e, pass, px, py, &deep) * s);
+            if (deep) dp[j][i >> 3] |= (uint8_t)(1 << (i & 7)); else dp[j][i >> 3] &= (uint8_t)~(1 << (i & 7));
+        }
+    for (int j = 0; j < CL_CH; j++)
+        for (int i = 0; i < CL_CW; i++) {
+            int d = sd[j][i];
+            if (d >= 0) continue;
+            bool deep = (dp[j][i >> 3] >> (i & 7)) & 1;
+            bool out_l = i == 0 || sd[j][i - 1] >= 0, out_u = j == 0 || sd[j - 1][i] >= 0;
+            bool out_r = i == CL_CW - 1 || sd[j][i + 1] >= 0, out_d = j == CL_CH - 1 || sd[j + 1][i] >= 0;
+            int v;
+            if (deep && e != CLE_ROCK) v = CLV_DEEP;
+            else if (out_r || out_d) v = CLV_RIM;
+            else if (out_l || out_u) v = CLV_LIT;
+            else if (deep) v = CLV_DEEP;                        /* the rock's moss: never on its edge */
+            else { uint32_t h = chash(i + 97 * e, j) % 100; v = h < 20 ? CLV_SHADE : h < 26 ? CLV_LIT : CLV_BODY; }
+            if (e == CLE_TUBE && deep && (out_u || out_l)) v = CLV_RIM;   /* the mouth's far lip */
+            ds()->cl_sprite[j][i] = (uint8_t)CL_TONE(e, v);
+        }
+}
+static void cl_build(float g) {
+    if (g > 1) g = 1;
+    if (g < 0) g = 0;
+    float s = CLUSTER_SIZE_MIN + (1.0f - CLUSTER_SIZE_MIN) * g;
+    memset(ds()->cl_sprite, 0, sizeof ds()->cl_sprite);
+    cl_paint(CLE_ROCK, 0, s);
+    cl_paint(CLE_WEED, 0, s);
+    cl_paint(CLE_CORAL, 0, s);
+    for (int k = 0; k < 4; k++) cl_paint(CLE_TUBE, k, s);
+    cl_paint(CLE_BRAIN, 0, s);
+    cl_paint(CLE_WEED, 1, s);
+    g_cl_cells = 0;
+    for (int j = 0; j < CL_CH; j++) for (int i = 0; i < CL_CW; i++) g_cl_cells += ds()->cl_sprite[j][i] != 0;
+}
+int render_cluster_cells(float growth) { cl_build(growth); g_cl_q = -1; return g_cl_cells; }
+static void cl_tint_fill(int scheme, float dim) {
+    if (g_cl_scheme == scheme && g_cl_dim == dim) return;
+    const cluster_scheme_t *sc = &CLUSTER_SCHEMES[scheme];
+    uint32_t base[CLE_N] = { 0x9a9284, 0x8fc63a, sc->coral, sc->tube, sc->brain };
+    uint32_t tone[CL_TONES]; tone[0] = 0;
+    for (int e = 0; e < CLE_N; e++) {
+        uint32_t c = base[e];
+        tone[CL_TONE(e, CLV_BODY)]  = c;
+        tone[CL_TONE(e, CLV_LIT)]   = mix(c, 0xfff0b0, e == CLE_ROCK ? 0.22f : 0.36f);
+        tone[CL_TONE(e, CLV_RIM)]   = mix(c, e == CLE_ROCK ? 0x2a2620 : 0x20060e, 0.55f);
+        tone[CL_TONE(e, CLV_SHADE)] = mix(c, 0x000000, 0.24f);
+        tone[CL_TONE(e, CLV_DEEP)]  = e == CLE_ROCK ? 0x6f9a3a : e == CLE_CORAL ? mix(c, 0xffe8a0, 0.58f)
+                                    : e == CLE_TUBE ? mix(c, 0x100418, 0.65f) : e == CLE_BRAIN ? mix(c, 0x0a3040, 0.45f) : mix(c, 0xe8ff80, 0.40f);
+    }
+    for (int r = 0; r < CL_H; r++) {
+        int y = CL_FY - CL_H + r;
+        uint32_t w = water_rgb(y < 0 ? 0 : y >= TANK_H ? TANK_H - 1 : y);
+        for (int k = 1; k < CL_TONES; k++) ds()->cl_row[k][r] = rgb565(mix(w, tone[k], 0.90f), dim);
+    }
+    g_cl_scheme = scheme; g_cl_dim = dim;
+}
+static void draw_cluster(ctx_t *c, int cx, int scheme, float growth, bool final) {
+    if (growth > 1) growth = 1;
+    int q = (int)(growth * (CL_Q - 0.01f));
+    if (q != g_cl_q) { cl_build(growth); g_cl_q = q; }
+    cl_tint_fill(scheme, c->dim);
+    int x0 = cx - CL_W / 2, y0 = CL_FY - CL_H;
+    for (int j = 0; j < CL_CH; j++)
+        for (int i = 0; i < CL_CW; i++) {
+            uint8_t t = ds()->cl_sprite[j][i];
+            if (!t) continue;
+            for (int dy = 0; dy < CL_CELL; dy++) {
+                int y = y0 + j * CL_CELL + dy;
+                uint16_t v = ds()->cl_row[t][j * CL_CELL + dy];
+                for (int dx = 0; dx < CL_CELL; dx++) {
+                    int x = x0 + i * CL_CELL + dx;
+                    if (!CTX_IN(c, x, y)) continue;
+                    uint16_t *p = &CTX_PX(c, x, y);
+                    *p = v;
+                    if (final) {
+                        int a = g_vig ? g_vig[y * TANK_W + x] : vig_alpha(x, y);
+                        if (a) px_darken(p, a);
+                        if (g_dirty) g_dirty[y * DIRTY_WORDS_PER_ROW + (x >> 5)] &= ~(1u << (x & 31));
+                    }
+                }
+            }
+        }
+    draw_floor_mound(c, cx, CLUSTER_HALF_W - 2, 6, final);            /* anchored: the rock sits in a low hump of the floor's stones */
+}
+/* the bloom (growth 1 -> CLUSTER_FULL): more and more tentacles, dealt one
+ * at a time round the hosts - the four tube mouths, the coral's seven tips,
+ * the brain's top - up to CL_TENT_MAX, each host's fan widening as it fills.
+ * Per frame, swaying (draw_crown); the bounding box for the caller's rect. */
+#define CL_TENT_MAX 48
+#define CL_HOSTS    12
+static void draw_cluster_crown(ctx_t *c, int cx, int scheme, float growth, float clock, int *bx0, int *by0, int *bx1, int *by1) {
+    *bx0 = *by0 = 1 << 20; *bx1 = *by1 = -1;
+    float phase = (growth - 1.0f) / (CLUSTER_FULL - 1.0f);
+    if (phase <= 0) return;
+    if (phase > 1) phase = 1;
+    int total = (int)(phase * CL_TENT_MAX + 0.5f);
+    if (total < 1) return;
+    const cluster_scheme_t *sc = &CLUSTER_SCHEMES[scheme];
+    float s = 1.0f;                                          /* full size by the time it blooms */
+    float x0 = cx - CL_W / 2;
+    for (int k = 0; k < CL_HOSTS; k++) {
+        int n = total / CL_HOSTS + (k < total % CL_HOSTS ? 1 : 0);
+        if (!n) continue;
+        float hx, hy, len; uint32_t rgb;
+        if (k < 4) { const cl_cap_t *t = &CL_TUBES[k]; hx = t->x1; hy = t->y1 + 0.5f; len = 11 + t->r; rgb = sc->tube; }
+        else if (k < 11) {                                   /* the coral's tips, in CORAL_SEGS order */
+            int ti = 0; const coral_seg_t *sg = NULL;
+            for (int i = 0; i < CORAL_NSEG && !sg; i++) if (CORAL_SEGS[i].tip && ti++ == k - 4) sg = &CORAL_SEGS[i];
+            if (!sg) continue;
+            hx = CL_CORAL_X + (sg->x1 - 16.0f) * CL_CORAL_SX; hy = CL_CORAL_Y + sg->y1 * CORAL_Y_SCALE * CL_CORAL_SY; len = 9; rgb = sc->coral;
+        } else { hx = 35; hy = 20; len = 8; rgb = sc->brain; }
+        float ox = x0 + (CL_CX + (hx - CL_CX) * s) * CL_CELL + 1, oy = CL_FY - hy * s * CL_CELL - 1;
+        float spread = 0.30f + 0.08f * n;                    /* radians each side of up, widening as the fan fills */
+        int qx0, qy0, qx1, qy1;
+        draw_crown(c, ox, oy, n, -1.5708f - spread, -1.5708f + spread, len, mix(rgb, 0xffffff, 0.55f), k * 7, clock, &qx0, &qy0, &qx1, &qy1);
+        if (qx1 >= qx0) { if (qx0 < *bx0) *bx0 = qx0; if (qy0 < *by0) *by0 = qy0; if (qx1 > *bx1) *bx1 = qx1; if (qy1 > *by1) *by1 = qy1; }
+    }
+}
+
+static bool cluster_state(const tank_t *t, int *cx, int *z, bool *placing) {
+    if (!(t->sd_unlocks & SD_ITEM_CLUSTER)) { *cx = -1; *z = DECOR_Z_MIDDLE; *placing = false; return false; }
+    *cx = (int)tank_decor_x(t, 4); *z = tank_decor_z(t, 4);
+    *placing = setup_is_place() && setup_item() == 4;
+    return true;
+}
+static int g_scene_coral_x = -2, g_scene_coral_z = -1, g_scene_coral_q = -1; static uint32_t g_scene_coral_rgb;
+static int g_scene_cl_x = -2, g_scene_cl_z = -1, g_scene_cl_q = -1, g_scene_cl_scheme = -1;
 
 static void draw_scene(const tank_t *t, uint16_t *fb, int stride, float dim) {
     ctx_t c = ctx_full(fb, stride, dim);
@@ -915,6 +1414,8 @@ static void draw_scene(const tank_t *t, uint16_t *fb, int stride, float dim) {
     float grow = 1.0f + 0.06f * popcount32(t->tank_ms_bits);
     fill_ellipse(&c, t->reef_x, TANK_H - 16, 34 * grow, 10 + 2 * (grow - 1) * 10, 0x123028, 255);
     { int cx, z; bool placing; if (castle_state(t, &cx, &z, &placing)) draw_castle(&c, cx, 0, false); }   /* uncached: always drawn here */
+    { int cx, z; bool placing; if (coral_state(t, &cx, &z, &placing) && z == DECOR_Z_BACK) draw_coral(&c, cx, tank_coral_rgb(t), tank_coral_growth(t), false); }
+    { int cx, z; bool placing; if (cluster_state(t, &cx, &z, &placing) && z == DECOR_Z_BACK) draw_cluster(&c, cx, tank_cluster_scheme(t), tank_cluster_growth(t), false); }
 }
 
 
@@ -970,6 +1471,8 @@ static void bake_scene(const tank_t *t, uint16_t *sc, float dim) {
         span_final(&c, (int)(t->reef_x - rx * w), (int)(t->reef_x + rx * w), y, &s, 255);
     }
     if (g_scene_castle_x >= 0) draw_castle(&c, g_scene_castle_x, 0, true);   /* the castle, unless it is being dragged */
+    if (g_scene_coral_x >= 0 && g_scene_coral_z == DECOR_Z_BACK) draw_coral(&c, g_scene_coral_x, g_scene_coral_rgb, (g_scene_coral_q + 0.5f) / CORAL_Q, true);   /* the coral BEHIND, likewise */
+    if (g_scene_cl_x >= 0 && g_scene_cl_z == DECOR_Z_BACK) draw_cluster(&c, g_scene_cl_x, g_scene_cl_scheme, (g_scene_cl_q + 0.5f) / CL_Q, true);   /* the cluster BEHIND */
 }
 
 void render_tank(const tank_t *t, uint16_t *fb, int stride) {
@@ -986,10 +1489,23 @@ void render_tank(const tank_t *t, uint16_t *fb, int stride) {
 
     int ccx, cz; bool placing; castle_state(t, &ccx, &cz, &placing);
     int scene_cx = placing ? -1 : ccx;
+    int kx, kz; bool kplacing; coral_state(t, &kx, &kz, &kplacing);
+    uint32_t krgb = tank_coral_rgb(t);
+    float kg = tank_coral_growth(t);
+    int kq = (int)(kg * (CORAL_Q - 0.01f));
+    int scene_kx = kplacing ? -1 : kx;
+    int lx, lz; bool lplacing; cluster_state(t, &lx, &lz, &lplacing);
+    float lg = tank_cluster_growth(t); int lscheme = tank_cluster_scheme(t);
+    int lq = (int)((lg > 1 ? 1 : lg) * (CL_Q - 0.01f));
+    int scene_lx = lplacing ? -1 : lx;
     g_veg_mask_cx = ccx >= 0 && cz == DECOR_Z_FRONT ? ccx : -1;
     if (cached) {
-        if (g_scene_dim != dim || g_scene_ms != t->tank_ms_bits || g_scene_castle_x != scene_cx || g_scene_castle_z != cz) {
+        if (g_scene_dim != dim || g_scene_ms != t->tank_ms_bits || g_scene_castle_x != scene_cx || g_scene_castle_z != cz
+            || g_scene_coral_x != scene_kx || g_scene_coral_z != kz || g_scene_coral_rgb != krgb || g_scene_coral_q != kq
+            || g_scene_cl_x != scene_lx || g_scene_cl_z != lz || g_scene_cl_q != lq || g_scene_cl_scheme != lscheme) {
             g_scene_castle_x = scene_cx; g_scene_castle_z = cz;
+            g_scene_coral_x = scene_kx; g_scene_coral_z = kz; g_scene_coral_rgb = krgb; g_scene_coral_q = kq;
+            g_scene_cl_x = scene_lx; g_scene_cl_z = lz; g_scene_cl_q = lq; g_scene_cl_scheme = lscheme;
             /* rebuild the static scene with the vignette baked in (the
                per-frame pass then only re-darkens dynamic patches). The
                reef's lushness comes from the tank milestones, so a new
@@ -1003,7 +1519,15 @@ void render_tank(const tank_t *t, uint16_t *fb, int stride) {
             memcpy(fb, g_scene, TANK_W * TANK_H * sizeof(uint16_t));
         g_primed_fb = NULL;
         if (placing) draw_castle(&c, ccx, 0, true);      /* dragged: drawn live over the castle-less scene */
+        if (kplacing && kz == DECOR_Z_BACK) draw_coral(&c, kx, krgb, kg, true);   /* the coral dragged BEHIND: live too */
+        if (lplacing && lz == DECOR_Z_BACK) draw_cluster(&c, lx, lscheme, lg, true);
     } else draw_scene(t, fb, stride, dim);
+#define CORAL_CROWN() do { int qx0, qy0, qx1, qy1; draw_coral_crown(&c, kx, krgb, kg, t->clock, &qx0, &qy0, &qx1, &qy1); \
+        if (qx1 >= qx0) DYN_RECT(qx0, qy0, qx1, qy1); } while (0)
+#define CLUSTER_CROWN() do { int qx0, qy0, qx1, qy1; draw_cluster_crown(&c, lx, lscheme, lg, t->clock, &qx0, &qy0, &qx1, &qy1); \
+        if (qx1 >= qx0) DYN_RECT(qx0, qy0, qx1, qy1); } while (0)
+    if (kx >= 0 && kz == DECOR_Z_BACK) CORAL_CROWN();   /* the crown BEHIND: over the baked fan, under the grass */
+    if (lx >= 0 && lz == DECOR_Z_BACK) CLUSTER_CROWN();
     PROF_ADD(0, p0);
 
     PROF_ADD(1, p0);   /* stage 1 (light shafts) retired 2026-09-01 */
@@ -1072,6 +1596,8 @@ void render_tank(const tank_t *t, uint16_t *fb, int stride) {
         if (bed_z(t, b) == DECOR_Z_MIDDLE) draw_veg(&c, t, b, veg_seed[b], 1, cached);
     for (int b = 0; b < tank_veg_beds(t); b++)          /* a FRONT-layer piece last: over the grass and the fish */
         if (bed_z(t, b) == DECOR_Z_FRONT) draw_veg(&c, t, b, veg_seed[b], -1, cached);
+    if (lx >= 0 && lz == DECOR_Z_FRONT) { draw_cluster(&c, lx, lscheme, lg, cached); CLUSTER_CROWN(); }
+    if (kx >= 0 && kz == DECOR_Z_FRONT) { draw_coral(&c, kx, krgb, kg, cached); CORAL_CROWN(); }   /* the coral IN FRONT: over everything */
     PROF_ADD(4, p0);
     /* porthole vignette: darken corners toward AMOLED black. With a scene
        cache the full-frame pass is baked into the scene and only the dynamic
@@ -1161,29 +1687,91 @@ void render_mask_corners(uint16_t *fb, int stride) {
     }
 }
 
-/* device battery pill, top-right: outline + nub, fill fraction colored by
- * level (charging = teal). Same visual language as the stats card - no text. */
-#define BATT_W 26
-#define BATT_H 11
-#define BATT_X (TANK_W - BATT_W - 40)   /* clear of the cut corner (TANK_CORNER_R), nub included */
-#define BATT_Y 16
-void render_battery(uint16_t *fb, int stride, float frac, bool charging) {
-    ctx_t c = ctx_full(fb, stride, 1.0f);
+/* ---- the battery (2026-09-24 redraw): Strato is color blind and could not
+ * tell the charging pill (a teal fill) from the full one (green). Now the
+ * cable shows as a SHAPE - a lightning bolt left of the pill - and flowing
+ * charge as MOTION - a bright band sweeping the fill; the hue only repeats
+ * it. On battery the fill wears the level colors; on the cable it is the
+ * calm green whatever the level (a red sliver on the charger is no alarm).
+ * The info page draws the same battery large. ---- */
+
+/* the bolt, a polygon in a 10 x 16 box: the flat top, the stroke down to
+   the left, the jog across, the tail to the point */
+static const float BOLT_X[7] = { 6.0f, 0.5f, 4.0f, 2.5f, 10.0f, 6.5f, 10.0f };
+static const float BOLT_Y[7] = { 0.0f, 9.5f, 9.5f, 16.0f, 5.5f, 5.5f, 0.0f };
+/* filled with 4 sub-rows of exact span coverage per pixel row, so it stays a
+   bolt at the pill's 15 px (no stair-stepped mush) and the page's 38 */
+static void bolt_fill(ctx_t *c, float ox, float oy, float s, uint32_t rgb, int alpha) {
+    src_t col = src_color(rgb, 1.0f);
+    int x0 = (int)floorf(ox), w = (int)ceilf(10.0f * s) + 2;
+    float cov[64];
+    if (w > 64) w = 64;
+    for (int y = (int)floorf(oy); y <= (int)ceilf(oy + 16.0f * s); y++) {
+        memset(cov, 0, sizeof cov);
+        for (int sub = 0; sub < 4; sub++) {
+            float yy = (y + (sub + 0.5f) * 0.25f - oy) / s, xs[8]; int n = 0;
+            for (int i = 0, j = 6; i < 7; j = i++)
+                if ((BOLT_Y[i] > yy) != (BOLT_Y[j] > yy))
+                    xs[n++] = ox + s * (BOLT_X[j] + (yy - BOLT_Y[j]) * (BOLT_X[i] - BOLT_X[j]) / (BOLT_Y[i] - BOLT_Y[j]));
+            for (int i = 1; i < n; i++) for (int k = i; k > 0 && xs[k] < xs[k - 1]; k--) { float t = xs[k]; xs[k] = xs[k - 1]; xs[k - 1] = t; }
+            for (int k = 0; k + 1 < n; k += 2)                   /* each inside interval, spread over the pixels it crosses */
+                for (int px_ = (int)floorf(xs[k]); px_ <= (int)floorf(xs[k + 1]); px_++) {
+                    float a = fmaxf(xs[k], (float)px_), b = fminf(xs[k + 1], px_ + 1.0f);
+                    if (b > a && px_ - x0 >= 0 && px_ - x0 < w) cov[px_ - x0] += (b - a) * 0.25f;
+                }
+        }
+        for (int i = 0; i < w; i++)
+            if (cov[i] > 0.02f) px_blend_s(c, x0 + i, y, &col, (int)(fminf(cov[i], 1.0f) * alpha));
+    }
+}
+/* the bolt h px tall at (x, y), with a dark rim so it reads over bright water */
+static void draw_bolt(ctx_t *c, float x, float y, float h, uint32_t rgb) {
+    float s = h / 16.0f;
+    for (int dy = -1; dy <= 1; dy++)
+        for (int dx = -1; dx <= 1; dx++)
+            if (dx || dy) bolt_fill(c, x + dx, y + dy, s, 0x04141a, 200);
+    bolt_fill(c, x, y, s, rgb, 255);
+}
+static float bolt_w(float h) { return 10.0f * h / 16.0f; }
+static int bolt_room(int H) { return (int)bolt_w(H * 1.25f) + H / 4 + 2; }   /* the bolt beside a battery H tall, and its gap */
+
+/* a battery at (X, Y), body W x H, `line` px of outline, the nub on the right;
+   on the cable the bolt stands left of it (the caller leaves the room) */
+static void draw_battery(ctx_t *c, int X, int Y, int W, int H, int line, float frac, int state, float clock) {
     if (frac < 0) frac = 0;
     if (frac > 1) frac = 1;
-    const int W = BATT_W, H = BATT_H, X = BATT_X, Y = BATT_Y;
-    uint32_t col = charging ? 0x38dcc7 : frac < 0.2f ? 0xf25b65
-                 : frac < 0.45f ? 0xffbd59 : 0x78d67d;
-    for (int y = Y; y < Y + H; y++)
-        for (int x = X; x < X + W; x++)
-            px_blend(&c, x, y, 0x04141a, 215);
-    for (int x = X; x < X + W; x++) { px(&c, x, Y, rgb565(0x9fb4b8, 1)); px(&c, x, Y + H - 1, rgb565(0x9fb4b8, 1)); }
-    for (int y = Y; y < Y + H; y++) { px(&c, X, y, rgb565(0x9fb4b8, 1)); px(&c, X + W - 1, y, rgb565(0x9fb4b8, 1)); }
-    for (int y = Y + 3; y < Y + H - 3; y++)                    /* nub */
-        for (int x = X + W; x < X + W + 3; x++) px(&c, x, y, rgb565(0x9fb4b8, 1));
-    int fw = (int)((W - 4) * frac + 0.5f);
-    for (int y = Y + 2; y < Y + H - 2; y++)
-        for (int x = X + 2; x < X + 2 + fw; x++) px(&c, x, y, rgb565(col, 1));
+    bool pw = BAT_ON_POWER(state);
+    uint32_t col = pw ? 0x78d67d : frac < 0.2f ? 0xf25b65 : frac < 0.45f ? 0xffbd59 : 0x78d67d;
+    uint32_t edge = pw ? 0xdfeef0 : 0x9fb4b8;                  /* on the cable the rim brightens too */
+    src_t bg = src_color(0x04141a, 1.0f), e = src_color(edge, 1.0f), f = src_color(col, 1.0f);
+    for (int y = Y; y < Y + H; y++) span(c, X, X + W - 1, y, &bg, 215);
+    for (int k = 0; k < line; k++) {
+        span(c, X, X + W - 1, Y + k, &e, 255); span(c, X, X + W - 1, Y + H - 1 - k, &e, 255);
+        for (int y = Y; y < Y + H; y++) { px(c, X + k, y, e.v); px(c, X + W - 1 - k, y, e.v); }
+    }
+    int nh = H * 2 / 5, nw = line + 2;                         /* the nub */
+    for (int y = Y + (H - nh) / 2; y < Y + (H + nh) / 2; y++) span(c, X + W, X + W + nw - 1, y, &e, 255);
+    int in = line + 1, iw = W - 2 * in, fw = (int)(iw * frac + 0.5f);
+    if (pw && fw < 2) fw = 2;
+    for (int y = Y + in; y < Y + H - in; y++) if (fw > 0) span(c, X + in, X + in + fw - 1, y, &f, 255);
+    if (state == BAT_CHARGING && fw > 0) {                     /* the sweep: charge flowing in, left to right */
+        float ph = fmodf(clock, 1.8f) / 1.3f;
+        if (ph <= 1.0f) {
+            float bw = fmaxf(4.0f, iw / 5.0f), cx = X + in - bw + ph * (fw + 2 * bw);
+            src_t wh = src_color(0xffffff, 1.0f);
+            for (int x = X + in; x < X + in + fw; x++) {
+                float d = fabsf(x + 0.5f - cx) / bw;
+                if (d < 1) for (int y = Y + in; y < Y + H - in; y++) px_blend_s(c, x, y, &wh, (int)(170 * (1 - d)));
+            }
+        }
+    }
+    if (pw) draw_bolt(c, X - bolt_room(H), Y - H / 8.0f, H * 1.25f, state == BAT_PLUGGED ? 0x9fb4b8 : 0xffffff);   /* a touch taller than the battery */
+}
+
+/* the pill, top right (render.h) */
+void render_battery(uint16_t *fb, int stride, float frac, int state, float clock) {
+    ctx_t c = ctx_full(fb, stride, 1.0f);
+    draw_battery(&c, RENDER_BAT_X, RENDER_BAT_Y, RENDER_BAT_W, RENDER_BAT_H, 1, frac, state, clock);
 }
 
 /* ---- stats overlay (selection ring + visual card) ---- */
@@ -1453,8 +2041,9 @@ static const uint8_t FONT5X7[][7] = {
     { 0x01, 0x02, 0x02, 0x04, 0x08, 0x08, 0x10 }, /* / */
     { 0x00, 0x04, 0x04, 0x1f, 0x04, 0x04, 0x00 }, /* + */
     { 0x19, 0x1a, 0x02, 0x04, 0x08, 0x0b, 0x13 }, /* % */
+    { 0x00, 0x00, 0x08, 0x15, 0x02, 0x00, 0x00 }, /* ~ (the battery page's "about") */
 };
-static const char FONT_CHARS[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789?!.,-:'/+%";
+static const char FONT_CHARS[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789?!.,-:'/+%~";
 static const uint8_t *glyph(char ch) {
     if (ch >= 'a' && ch <= 'z') ch -= 'a' - 'A';
     const char *p = ch ? strchr(FONT_CHARS, ch) : NULL;
@@ -1578,6 +2167,64 @@ int render_confirm_hit(float x, float y) {
     if (x >= RENDER_CONFIRM_NO_X - m  && x < RENDER_CONFIRM_NO_X  + RENDER_CONFIRM_BTN_W + m) return -1;
     if (x >= RENDER_CONFIRM_YES_X - m && x < RENDER_CONFIRM_YES_X + RENDER_CONFIRM_BTN_W + m) return 1;
     return 0;
+}
+
+/* ---- the battery page (2026-09-24): a tap on the pill. The snail card's
+ * dress, centered over the live tank: the battery large with its percent,
+ * the state in words (the one thing no color has to carry), the estimate,
+ * then two or three rows - since the cable moved, the screen-on time on
+ * this charge, what a full charge lasts - and the cell voltage, dim, for
+ * the curious. Rows the clock cannot answer are left out. ---- */
+void render_battery_info(uint16_t *fb, int stride, const bat_info_t *bi, float clock) {
+    ctx_t c = ctx_full(fb, stride, 1.0f);
+    bool pw = BAT_ON_POWER(bi->state);
+    char lab[3][16], val[3][32], d[16]; int nr = 0;
+    if (bi->since_min >= 0) {
+        snprintf(lab[nr], sizeof lab[nr], pw ? "PLUGGED IN" : "UNPLUGGED");
+        if (bi->since_min < 1) snprintf(val[nr], sizeof val[nr], "JUST NOW");
+        else { battery_fmt_dur(d, sizeof d, bi->since_min); snprintf(val[nr], sizeof val[nr], "%s AGO", d); }
+        nr++;
+    }
+    if (!pw && bi->awake_min >= 0) {
+        snprintf(lab[nr], sizeof lab[nr], "SCREEN ON");
+        battery_fmt_dur(val[nr], sizeof val[nr], bi->awake_min); nr++;
+    }
+    if (bi->life_min > 0) {
+        snprintf(lab[nr], sizeof lab[nr], "BATTERY LIFE");
+        battery_fmt_dur(d, sizeof d, bi->life_min); snprintf(val[nr], sizeof val[nr], "~%s", d); nr++;
+    }
+    const int W = 336, H = (bi->mv > 0 ? 170 : 154) + nr * 26, X = (TANK_W - W) / 2, Y = (TANK_H - H) / 2;
+    src_t bg = src_color(0x04141a, 1.0f);
+    for (int y = Y; y < Y + H; y++) span(&c, X, X + W - 1, y, &bg, 240);
+    rect_edge(&c, X, Y, W, H, 0x9fd8e2); rect_edge(&c, X + 1, Y + 1, W - 2, H - 2, 0x1c2f36);
+    /* the battery, its percent beside it */
+    char pct[16]; snprintf(pct, sizeof pct, "%d%%", bi->pct < 0 ? 0 : bi->pct > 100 ? 100 : bi->pct);
+    const int BW = 84, BH = 36, TS = 5;
+    int bolt = pw ? bolt_room(BH) : 0;
+    int gw = bolt + BW + 6 + 20 + text_w(pct, TS), gx = X + (W - gw) / 2, gy = Y + 22;
+    draw_battery(&c, gx + bolt, gy, BW, BH, 2, bi->pct / 100.0f, bi->state, clock);
+    draw_text(&c, gx + bolt + BW + 6 + 20, gy + (BH - 7 * TS) / 2, TS, 0xffffff, pct);
+    /* the state, then what it means in time */
+    const char *st = bi->state == BAT_CHARGING ? "CHARGING" : bi->state == BAT_FULL ? "FULLY CHARGED"
+                   : bi->state == BAT_PLUGGED ? "PLUGGED IN" : "ON BATTERY";
+    draw_text(&c, X + (W - text_w(st, 3)) / 2, Y + 78, 3, 0xffffff, st);
+    char est[48];
+    if (bi->state == BAT_CHARGING) { battery_fmt_dur(d, sizeof d, bi->left_min); snprintf(est, sizeof est, "FULL IN ABOUT %s", d); }
+    else if (bi->state == BAT_FULL) snprintf(est, sizeof est, "READY TO UNPLUG");
+    else if (bi->state == BAT_PLUGGED) snprintf(est, sizeof est, "NOT CHARGING RIGHT NOW");
+    else if (bi->left_min < 5) snprintf(est, sizeof est, "ALMOST EMPTY");
+    else { battery_fmt_dur(d, sizeof d, bi->left_min); snprintf(est, sizeof est, "ABOUT %s LEFT", d); }
+    draw_text(&c, X + (W - text_w(est, 2)) / 2, Y + 110, 2, 0x9fd8e2, est);
+    rect_fill(&c, X + 20, Y + 138, W - 40, 1, 0x1c2f36);
+    for (int i = 0; i < nr; i++) {
+        int ry = Y + 152 + i * 26;
+        draw_text(&c, X + 20, ry, 2, 0x9fd8e2, lab[i]);
+        draw_text(&c, X + W - 20 - text_w(val[i], 2), ry, 2, 0xffffff, val[i]);
+    }
+    if (bi->mv > 0) {
+        char v[32]; snprintf(v, sizeof v, "%d.%02d V", bi->mv / 1000, bi->mv % 1000 / 10);
+        draw_text_8px(&c, X + (W - (int)strlen(v) * 6 + 1) / 2, Y + H - 20, 0x5f7f86, v);
+    }
 }
 
 /* ---- milestones page (2026-09-13 redesign: an achievement wall) ----
@@ -1942,8 +2589,8 @@ static int ms_open(const tank_t *t, int row, bool tank_row, bool fry_row, int k,
         if (k < 0) {                                 /* the name: the tally, and when it comes */
             int met = 0; for (int i = 0; i < nreq; i++) met += req[i].met;
             snprintf(g_ms_title, sizeof g_ms_title, "NEW FRY");
-            if (staged) { snprintf(g_ms_caption, sizeof g_ms_caption, "EVERY STEP IS DONE. A FRY");
-                          snprintf(g_ms_caption2, sizeof g_ms_caption2, "COMES AT THE NEXT LIGHT-ON");
+            if (staged) { snprintf(g_ms_caption, sizeof g_ms_caption, "EVERY STEP IS DONE. A FRY");   /* the spawning, 2026-09-24 */
+                          snprintf(g_ms_caption2, sizeof g_ms_caption2, "WILL BE BORN IN THE GRASS");
                           snprintf(g_ms_sub, sizeof g_ms_sub, "ON ITS WAY"); }
             else { snprintf(g_ms_caption, sizeof g_ms_caption, "WHEN ALL NEEDS ARE MET, A");     /* Strato's words, 2026-09-14 */
                    snprintf(g_ms_caption2, sizeof g_ms_caption2, "NEW FRY IS READY TO BE BORN");
@@ -2058,12 +2705,36 @@ void render_notice(const tank_t *t, uint16_t *fb, int stride, int kind, int fish
 #define SHP_MODAL_Y   ((TANK_H - SHP_MODAL_H) / 2)
 /* the caption under the rows: centred in the room between the last row and the buttons (the square tank, 2026-09-17; on the
    1.8 it sat SHP_BTN_H + 12 under the last row, and before the castle's row it was fixed at 224 / 244) */
-#define SHP_CAPTION_Y ((SHP_ROW_Y0 + (SD_ITEM_COUNT - 1) * SHP_ROW_DY + SHP_BTN_H + MSP_CLOSE_Y - 34) / 2)
 #define SHP_EARN_MODAL_H 224
 #define SHP_EARN_MODAL_Y ((TANK_H - SHP_EARN_MODAL_H) / 2)
 static int  g_shp_modal = -1;        /* the item whose modal is up, or -1 */
 static bool g_shp_earn;              /* the HOW TO EARN modal is up */
-static const icon_t *shop_icon(int item) { return item == 0 ? &icon_shop_plant : item == 1 ? &icon_shop_snail : &icon_shop_castle; }
+static bool g_shp_sell_armed;        /* SELL tapped once: the next tap on it sells */
+#define SHP_TWO_GAP 16               /* MOVE and SELL side by side in the modal */
+#define SHP_TWO_X0  (SHP_MODAL_X + (SHP_MODAL_W - 2 * MSP_HOW_W - SHP_TWO_GAP) / 2)
+#define SHP_TWO_X1  (SHP_TWO_X0 + MSP_HOW_W + SHP_TWO_GAP)
+static const icon_t *shop_icon(int item) { return item == 0 ? &icon_shop_plant : item == 1 ? &icon_shop_snail : item == 2 ? &icon_shop_castle : item == 3 ? &icon_shop_coral : &icon_shop_cluster; }
+/* pages (2026-09-23, the fourth item): SHP_PER_PAGE rows fit between the
+ * coin and the foot buttons once the filler caption went (HOW TO EARN says
+ * the same). With more items than a page holds, arrows at the header's
+ * right flip through the pages; with one page nothing shows. */
+#define SHP_PER_PAGE 4
+#define SHP_PAGES    ((SD_ITEM_COUNT + SHP_PER_PAGE - 1) / SHP_PER_PAGE)
+#define SHP_ARROW_W  36
+#define SHP_ARROW_H  32
+#define SHP_ARROW_Y  (SHP_COIN_Y + 16)
+#define SHP_ARROW_X1 (TANK_W - 28 - SHP_ARROW_W)          /* next */
+#define SHP_ARROW_X0 (SHP_ARROW_X1 - SHP_ARROW_W - 8)     /* previous */
+static int g_shp_page;
+static void shop_arrow(ctx_t *c, int x, int y, bool right, uint32_t rgb) {   /* a chevron in a button */
+    button(c, x, y, SHP_ARROW_W, SHP_ARROW_H, 0x1c2f36, rgb, "", 2);
+    int cx = x + SHP_ARROW_W / 2, cy = y + SHP_ARROW_H / 2;
+    for (int i = 0; i < 7; i++) {                            /* a chevron: two strokes meeting at the tip */
+        int x = right ? cx - 3 + i : cx + 3 - i;
+        rect_fill(c, x, cy - 6 + i, 2, 1, rgb);
+        rect_fill(c, x, cy + 6 - i, 2, 1, rgb);
+    }
+}
 static void price_tag(ctx_t *c, int x, int y, int price, uint32_t rgb) {   /* the small coin + the number */
     blit_icon(c, x, y - 1, &icon_shop_sand_dollar_16, 255);
     char n[16]; snprintf(n, sizeof n, "%d", price);
@@ -2077,9 +2748,13 @@ void render_shop(const tank_t *t, uint16_t *fb, int stride) {
     char bal[16]; snprintf(bal, sizeof bal, "%d", (int)t->sd_balance);
     draw_text(&c, 112, SHP_COIN_Y + 28, 4, 0xffffff, bal);
     for (int x = 24; x < TANK_W - 24; x++) px_blend(&c, x, SHP_ROW_Y0 - 18, MSP_DIM, 200);
-    for (int i = 0; i < SD_ITEM_COUNT; i++) {
+    if (SHP_PAGES > 1) {
+        shop_arrow(&c, SHP_ARROW_X0, SHP_ARROW_Y, false, g_shp_page > 0 ? MSP_TEAL : MSP_DIM);
+        shop_arrow(&c, SHP_ARROW_X1, SHP_ARROW_Y, true, g_shp_page < SHP_PAGES - 1 ? MSP_TEAL : MSP_DIM);
+    }
+    for (int i = g_shp_page * SHP_PER_PAGE; i < SD_ITEM_COUNT && i < (g_shp_page + 1) * SHP_PER_PAGE; i++) {
         const sd_item_t *it = &SD_ITEMS[i];
-        int top = SHP_ROW_Y0 + i * SHP_ROW_DY;
+        int top = SHP_ROW_Y0 + (i - g_shp_page * SHP_PER_PAGE) * SHP_ROW_DY;
         bool owned = (t->sd_unlocks & it->bit) != 0, can = t->sd_balance >= it->price;
         if (owned) blit_icon(&c, SHP_COIN_X, top, shop_icon(i), 255); else blit_icon_locked(&c, SHP_COIN_X, top, shop_icon(i));
         draw_text(&c, 76, top + 2, 2, 0xffffff, it->name);
@@ -2090,8 +2765,6 @@ void render_shop(const tank_t *t, uint16_t *fb, int stride) {
                         draw_text(&c, SHP_BTN_X + (SHP_BTN_W - text_w("UNLOCK", 2)) / 2, top + (SHP_BTN_H - 14) / 2, 2, MSP_INK, "UNLOCK"); }
         else           button(&c, SHP_BTN_X, top, SHP_BTN_W, SHP_BTN_H, 0x1c2f36, MSP_DIM, "UNLOCK", 2);
     }
-    draw_text(&c, (TANK_W - text_w("EARN THEM BY CARING FOR", 2)) / 2, SHP_CAPTION_Y, 2, 0x3f6a72, "EARN THEM BY CARING FOR");
-    draw_text(&c, (TANK_W - text_w("THE TANK AND THE FISH", 2)) / 2, SHP_CAPTION_Y + 20, 2, 0x3f6a72, "THE TANK AND THE FISH");
     button(&c, SHP_EARN_X, MSP_CLOSE_Y, SHP_EARN_W, MSP_CLOSE_H, 0x1c2f36, MSP_TEAL, "HOW TO EARN", 2);
     button(&c, MSP_CLOSE_X, MSP_CLOSE_Y, MSP_CLOSE_W, MSP_CLOSE_H, 0x1c2f36, MSP_TEAL, "CLOSE", 2);
     if (g_shp_modal < 0 && !g_shp_earn) return;
@@ -2118,10 +2791,16 @@ void render_shop(const tank_t *t, uint16_t *fb, int stride) {
     draw_text(&c, X + (W - text_w(it->words, 2)) / 2, Y + 118, 2, MSP_TEAL, it->words);
     draw_text(&c, X + (W - text_w(it->words2, 2)) / 2, Y + 138, 2, MSP_TEAL, it->words2);
     const int bx = X + (W - MSP_HOW_W) / 2, by = Y + H - 12 - MSP_HOW_H;
-    if (owned && tank_decor_placeable(g_shp_modal)) {         /* a placeable piece: MOVE re-opens the placement page */
+    if (owned && tank_decor_placeable(g_shp_modal)) {         /* a placeable piece: MOVE re-opens the placement page, SELL (twice) sells it back */
+        char sell[24]; snprintf(sell, sizeof sell, "SELLS BACK FOR %d", progression_sell_value(g_shp_modal));
         draw_text(&c, X + (W - text_w("IN THE TANK", 2)) / 2, Y + 164, 2, MSP_TEAL, "IN THE TANK");
-        button(&c, bx, by, MSP_HOW_W, MSP_HOW_H, 0x1c2f36, MSP_TEAL, "MOVE", 2);
-    } else if (owned) draw_text(&c, X + (W - text_w("IN THE TANK", 2)) / 2, by + 8, 2, MSP_TEAL, "IN THE TANK");
+        draw_text(&c, X + (W - text_w(sell, 2)) / 2, Y + 184, 2, MSP_DIM, sell);
+        button(&c, SHP_TWO_X0, by, MSP_HOW_W, MSP_HOW_H, 0x1c2f36, MSP_TEAL, "MOVE", 2);
+        if (g_shp_sell_armed) { snprintf(sell, sizeof sell, "+%d OK?", progression_sell_value(g_shp_modal));
+                                button(&c, SHP_TWO_X1, by, MSP_HOW_W, MSP_HOW_H, MSP_TEAL, MSP_TEAL, sell, 2);
+                                draw_text(&c, SHP_TWO_X1 + (MSP_HOW_W - text_w(sell, 2)) / 2, by + (MSP_HOW_H - 14) / 2, 2, MSP_INK, sell); }
+        else button(&c, SHP_TWO_X1, by, MSP_HOW_W, MSP_HOW_H, 0x1c2f36, MSP_DIM, "SELL", 2);
+    } else if (owned) draw_text(&c, X + (W - text_w("IN THE TANK", 2)) / 2, by + 8, 2, MSP_TEAL, "IN THE TANK");   /* the snail: a permanent resident */
     else {
         char line[32]; snprintf(line, sizeof line, "%d", it->price);
         int pw = 20 + text_w(line, 2);
@@ -2139,21 +2818,35 @@ int render_shop_tap(const tank_t *t, float x, float y) {
         int item = g_shp_modal; const sd_item_t *it = &SD_ITEMS[item];
         bool owned = (t->sd_unlocks & it->bit) != 0, can = t->sd_balance >= it->price;
         const int bx = SHP_MODAL_X + (SHP_MODAL_W - MSP_HOW_W) / 2, by = SHP_MODAL_Y + SHP_MODAL_H - 12 - MSP_HOW_H;
-        bool on_btn = x >= bx - MSP_HOW_SLOP_X && x < bx + MSP_HOW_W + MSP_HOW_SLOP_X && y >= by - MSP_HOW_SLOP_UP && y < by + MSP_HOW_H + MSP_HOW_SLOP_DN;
-        g_shp_modal = -1;
+        bool row = y >= by - MSP_HOW_SLOP_UP && y < by + MSP_HOW_H + MSP_HOW_SLOP_DN;
+        bool on_btn = row && x >= bx - MSP_HOW_SLOP_X && x < bx + MSP_HOW_W + MSP_HOW_SLOP_X;
+        if (owned && tank_decor_placeable(item)) {                /* two buttons: MOVE, and SELL armed then confirmed */
+            bool on_move = row && x >= SHP_TWO_X0 - MSP_HOW_SLOP_X && x < SHP_TWO_X0 + MSP_HOW_W + SHP_TWO_GAP / 2;
+            bool on_sell = row && x >= SHP_TWO_X1 - SHP_TWO_GAP / 2 && x < SHP_TWO_X1 + MSP_HOW_W + MSP_HOW_SLOP_X;
+            if (on_sell && !g_shp_sell_armed) { g_shp_sell_armed = true; return SHOP_TAP_KEPT; }
+            g_shp_sell_armed = false; g_shp_modal = -1;
+            if (on_sell) return SHOP_TAP_SELL + item;
+            if (on_move) return SHOP_TAP_MOVE + item;
+            return SHOP_TAP_KEPT;
+        }
+        g_shp_modal = -1; g_shp_sell_armed = false;
         if (on_btn && !owned && can) return SHOP_TAP_BUY + item;
-        if (on_btn && owned && tank_decor_placeable(item)) return SHOP_TAP_MOVE + item;
         return SHOP_TAP_KEPT;
     }
     if (x >= MSP_CLOSE_X - 8 && y >= MSP_CLOSE_Y - 4) return SHOP_TAP_CLOSE;
     if (x < SHP_EARN_X + SHP_EARN_W + 8 && y >= MSP_CLOSE_Y - 4) { g_shp_earn = true; return SHOP_TAP_KEPT; }
-    for (int i = 0; i < SD_ITEM_COUNT; i++) {
-        int top = SHP_ROW_Y0 + i * SHP_ROW_DY;
+    if (SHP_PAGES > 1 && y < SHP_ROW_Y0 - 10 && x >= SHP_ARROW_X0 - 8) {   /* the page arrows, in the header band */
+        if (x < SHP_ARROW_X1 - 4) { if (g_shp_page > 0) g_shp_page--; }
+        else if (g_shp_page < SHP_PAGES - 1) g_shp_page++;
+        return SHOP_TAP_KEPT;
+    }
+    for (int i = g_shp_page * SHP_PER_PAGE; i < SD_ITEM_COUNT && i < (g_shp_page + 1) * SHP_PER_PAGE; i++) {
+        int top = SHP_ROW_Y0 + (i - g_shp_page * SHP_PER_PAGE) * SHP_ROW_DY;
         if (x >= 20 && y >= top - 8 && y < top + SHP_ROW_DY - 8) { g_shp_modal = i; return SHOP_TAP_KEPT; }
     }
     return SHOP_TAP_NONE;
 }
-void render_shop_leave(void) { g_shp_modal = -1; g_shp_earn = false; }
+void render_shop_leave(void) { g_shp_modal = -1; g_shp_earn = false; g_shp_page = 0; g_shp_sell_armed = false; }
 
 /* the toast: "+N" by a coin, top centre, for TOAST_S on the tank clock */
 #define TOAST_S 2.5f
@@ -2340,10 +3033,11 @@ int render_settings_touch(tank_t *t, float x, float y, bool down, int *value) {
 #define CORNER_DY(y) ((y) < TANK_CORNER_R ? TANK_CORNER_R - (y) : (y) > TANK_H - TANK_CORNER_R ? (y) - (TANK_H - TANK_CORNER_R) : 0)
 #define CORNER_CLEAR(x, y) (CORNER_DX(x) * CORNER_DX(x) + CORNER_DY(y) * CORNER_DY(y) <= TANK_CORNER_R * TANK_CORNER_R)
 _Static_assert(CORNER_CLEAR(RENDER_CARD_X, RENDER_CARD_Y), "the stats card's top-left corner is cut");
-_Static_assert(CORNER_CLEAR(BATT_X + BATT_W + 3, BATT_Y), "the battery pill (nub included) is cut");
+_Static_assert(CORNER_CLEAR(RENDER_BAT_X + RENDER_BAT_W + 3, RENDER_BAT_Y), "the battery pill (nub included) is cut");
 _Static_assert(CORNER_CLEAR(MSP_SET_X, MSP_CLOSE_Y + MSP_CLOSE_H), "the SETTINGS button is cut");
 _Static_assert(CORNER_CLEAR(MSP_CLOSE_X + MSP_CLOSE_W, MSP_CLOSE_Y + MSP_CLOSE_H), "the CLOSE button is cut");
 _Static_assert(CORNER_CLEAR(SHP_COIN_X, SHP_COIN_Y), "the shop's coin is cut");
+_Static_assert(CORNER_CLEAR(SHP_ARROW_X1 + SHP_ARROW_W, SHP_ARROW_Y), "the shop's next-page arrow is cut");
 _Static_assert(CORNER_CLEAR(SHP_EARN_X, MSP_CLOSE_Y + MSP_CLOSE_H), "the HOW TO EARN button is cut");
 _Static_assert(CORNER_CLEAR(SET_LABEL_X, TANK_H - 30 + 8), "the settings page's firmware line is cut");
 _Static_assert(CORNER_CLEAR(MSP_TITLE_Y >= 0 ? TANK_W / 2 : 0, MSP_TITLE_Y), "the MILESTONES title is cut");

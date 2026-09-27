@@ -4,7 +4,9 @@
 #ifndef RENDER_H
 #define RENDER_H
 
+#include <stddef.h>
 #include "tank.h"
+#include "battery.h"
 
 /* fb is TANK_W x TANK_H, RGB565, stride in PIXELS (usually TANK_W). */
 void render_tank(const tank_t *t, uint16_t *fb, int stride);
@@ -78,9 +80,26 @@ void render_set_card_cache(uint16_t *buf);
  * keeper really sees. */
 void render_mask_corners(uint16_t *fb, int stride);
 
-/* Device battery pill (top-right), drawn with the stats card on hardware:
- * frac 0..1, charging tints the fill teal. */
-void render_battery(uint16_t *fb, int stride, float frac, bool charging);
+/* Device battery pill (top-right), drawn with the stats card on hardware,
+ * while the battery is low, and for BAT_POPUP_S after the cable goes in:
+ * frac 0..1, state = BAT_* (battery.h), clock (s) runs the sweep. Redrawn
+ * 2026-09-24 for a color-blind keeper: on the cable a lightning bolt stands
+ * left of the pill (gray while the charger rests), and while charge flows a
+ * bright band sweeps the fill - shape and motion, hue only as a repeat.
+ * A tap in RENDER_BAT_HIT (the pill plus a fingertip's slop, most of it
+ * below and to the left) opens the battery page - while the pill shows. */
+#define RENDER_BAT_W 32
+#define RENDER_BAT_H 15
+#define RENDER_BAT_X (TANK_W - RENDER_BAT_W - 40)     /* clear of the cut corner (TANK_CORNER_R), nub included; the bolt sits left of it */
+#define RENDER_BAT_Y 16
+#define RENDER_BAT_HIT(x, y) ((x) >= RENDER_BAT_X - 44 && (y) < RENDER_BAT_Y + RENDER_BAT_H + 40)
+void render_battery(uint16_t *fb, int stride, float frac, int state, float clock);
+/* the battery page (2026-09-24): a panel over the live tank - the battery
+ * large with its percent, the state in words, time left / time to full,
+ * then since the cable moved, screen-on time on this charge, what a full
+ * charge lasts (battery_info fills bi) and the voltage, dim. Any tap closes
+ * it (the platforms); it closes itself after a while. */
+void render_battery_info(uint16_t *fb, int stride, const bat_info_t *bi, float clock);
 /* an announcement over the live tank (notice.h: a milestone the moment it
  * is earned, a stage reached, low battery), in the milestones page's modal
  * style; frac_left (1 -> 0) is its remaining time, drawn as a thin bar */
@@ -130,13 +149,23 @@ void render_milestones_leave(void);
  * to the milestones page, 2026-09-16),
  * SHOP_TAP_KEPT when a modal opened or closed. Page state is render-local;
  * render_shop_leave clears it when the page closes. */
-enum { SHOP_TAP_NONE = 0, SHOP_TAP_KEPT = 1, SHOP_TAP_CLOSE = 2, SHOP_TAP_BUY = 16, SHOP_TAP_MOVE = 32 };   /* BUY / MOVE + item index */
+enum { SHOP_TAP_NONE = 0, SHOP_TAP_KEPT = 1, SHOP_TAP_CLOSE = 2, SHOP_TAP_BUY = 16, SHOP_TAP_MOVE = 32, SHOP_TAP_SELL = 64 };   /* BUY / MOVE / SELL + item index */
+/* SHOP_TAP_SELL (2026-09-24): an owned placeable piece's modal has SELL next
+ * to MOVE; the first tap arms it ("+30 OK?"), the second returns SELL + item
+ * and the platform calls progression_sell. Test SELL before MOVE before BUY. */
 /* SHOP_TAP_MOVE (2026-09-16): an owned, placeable item's modal carries a MOVE
  * button - the platform closes the shop and opens setup.c's placement page
  * (setup_begin_place), the same page a purchase opens. */
 void render_shop(const tank_t *t, uint16_t *fb, int stride);
 int  render_shop_tap(const tank_t *t, float x, float y);
 void render_shop_leave(void);
+int  render_coral_cells(float growth);   /* the coral sprite's filled cells at a growth (the sim's selftest) */
+int  render_cluster_cells(float growth); /* the reef cluster's, likewise */
+/* the decor scratch (2026-09-24): the coral's and the cluster's tables in one
+ * block the platform provides - PSRAM on the board (internal RAM is spoken
+ * for); the sim leaves it unset and render calloc's it */
+size_t render_decor_scratch_size(void);
+void   render_set_decor_scratch(void *buf);
 /* the sand dollar toast: dollars awarded during play (progression_sd_take_award)
  * show as a small pill top centre of the live tank, "+N" beside the coin,
  * for a few seconds; amounts that land while it is up add on. Call every
