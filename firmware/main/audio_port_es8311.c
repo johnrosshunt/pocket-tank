@@ -5,6 +5,7 @@
 #include "audio.h"
 #include "codec_port.h"
 #include "battery_port.h"
+#include "board_pins.h"          /* PIN_I2S_MCLK, BOARD_CODEC_RAIL */
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
@@ -17,14 +18,17 @@
 
 static const char *TAG = "audio";
 
-#define PIN_I2S_MCLK  42
 #define PIN_I2S_BCLK  9
 #define PIN_I2S_WS    45
 #define PIN_I2S_DOUT  8        /* ESP -> codec DSDIN */
 #define PIN_AMP_EN    46       /* NS4150B CTRL, 10k pulldown on the board */
 #define BLOCK         160      /* 10 ms at 16 kHz */
 #define IDLE_US       (2 * 1000000LL)
-#define CODEC_RAIL    "aldo1"  /* A3V3: the codec's AVDD + the mic */
+#ifdef BOARD_CODEC_RAIL
+#define CODEC_RAIL    BOARD_CODEC_RAIL   /* the board says (NULL: none switched) */
+#else
+#define CODEC_RAIL    "aldo1"  /* A3V3: the codec's AVDD + the mic (the 1.8) */
+#endif
 
 extern const uint8_t _binary_sounds_bin_start[];
 extern const uint8_t _binary_sounds_bin_end[];
@@ -86,7 +90,7 @@ static void write_silence(int ms) {
 /* power up: rail -> clocks -> codec -> zeros -> amp (pops stay inside) */
 static void bring_up(void) {
     int64_t t0 = esp_timer_get_time();
-    battery_port_set_rail(CODEC_RAIL, true);
+    if (CODEC_RAIL) battery_port_set_rail(CODEC_RAIL, true);
     vTaskDelay(pdMS_TO_TICKS(5));
     i2s_channel_enable(s_tx);                 /* MCLK/BCLK/LRCK running before the CSM starts */
     bool ok = codec_port_up();
@@ -104,7 +108,7 @@ static void bring_down(void) {
     write_silence(10);
     i2s_channel_disable(s_tx);
     codec_port_down();
-    battery_port_set_rail(CODEC_RAIL, false);
+    if (CODEC_RAIL) battery_port_set_rail(CODEC_RAIL, false);
     s_up = false;
     ESP_LOGI(TAG, "down (idle)");
 }

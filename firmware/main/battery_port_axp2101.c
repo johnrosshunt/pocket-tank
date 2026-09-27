@@ -5,6 +5,7 @@
  * ~1 s (the pill answers a plug-in within a second); any I2C error or
  * absent battery hides the meter. */
 #include "battery_port.h"
+#include "board_pins.h"          /* BOARD_PMIC_TRIM: the rails this board may switch off */
 #include "driver/i2c_master.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -171,12 +172,21 @@ bool battery_port_set_rail(const char *name, bool on) {
     ESP_LOGW("battery", "no such rail '%s' (dcdc1 and the RTC LDO are never switched)", name);
     return false;
 }
-/* boot: everything with no consumer off, plus ALDO1 (audio analog, unused) */
+/* boot: every output with no consumer off. WHICH outputs is a board fact
+ * (board_pins.h BOARD_PMIC_TRIM, NULL-terminated here): the default is the
+ * 1.8's, from its schematic - everything but DCDC1 (VCC3V3) and the RTC LDO,
+ * ALDO1 (the codec's analog side) included. A board that has not checked its
+ * rail wiring trims nothing (2026-09-26: the 2.16's I2C bus timed out from
+ * the moment its rails were trimmed with the 1.8's list). */
+#ifndef BOARD_PMIC_TRIM
+#define BOARD_PMIC_TRIM "dcdc2", "dcdc3", "dcdc4", "aldo1", "aldo2", "aldo3", "aldo4", "bldo1", "bldo2", "cpusldo", "dldo1", "dldo2"
+#endif
 void battery_port_trim_rails(void) {
-    static const char *off[] = { "dcdc2", "dcdc3", "dcdc4", "aldo1", "aldo2", "aldo3", "aldo4", "bldo1", "bldo2", "cpusldo", "dldo1", "dldo2" };
-    int n = 0;
-    for (size_t i = 0; i < sizeof off / sizeof off[0]; i++) n += battery_port_set_rail(off[i], false);
-    ESP_LOGI("battery", "rails trimmed: %d of %d unused outputs off (dcdc1 = VCC3V3 and the RTC LDO stay)", n, (int)(sizeof off / sizeof off[0]));
+    static const char *off[] = { BOARD_PMIC_TRIM, NULL };
+    int n = 0, m = 0;
+    for (; off[m]; m++) n += battery_port_set_rail(off[m], false);
+    if (!m) ESP_LOGI("battery", "rails left as the PMIC set them: this board's rail wiring is unchecked (board_pins.h BOARD_PMIC_TRIM)");
+    else ESP_LOGI("battery", "rails trimmed: %d of %d unused outputs off (dcdc1 = VCC3V3 and the RTC LDO stay)", n, m);
 }
 
 int battery_port_vbat_mv(void) {
