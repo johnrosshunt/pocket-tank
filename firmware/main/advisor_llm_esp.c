@@ -29,7 +29,27 @@ static void *psram_alloc(size_t n) {
 
 /* hot activation buffers live in internal SRAM (~70 KB): the dot kernel then
  * streams only flash weights + SRAM activations, off the contended PSRAM bus */
+/* the engine's hot buffers in internal SRAM - but never the last of it. The
+ * model loads (and its boot bench sizes the 44-token batch) BEFORE the display,
+ * the audio and the tank task are set up, and those need internal RAM too:
+ * the panel's two DMA stripes (~61 KB on the 480 x 480 panel), the tank
+ * task's 12 KB stack, the audio task and its DMA. Taken greedily, the batch
+ * buffers left the tank task no stack on the square tank - it was never
+ * created: a dark panel, dead touch, a silent log (2026-09-26). Past the
+ * reserve a buffer goes to PSRAM (alloc16_fast falls back): a little slower,
+ * and the tank runs. The reserve covers what comes after the model on the
+ * 480 x 480 build: the advisor task (16 KB), the panel's DMA stripes (61 KB),
+ * the audio (~6 KB), touch / IMU / clock / runtime (~20 KB), the tank task
+ * (12 KB) and room to breathe. 100 KB was measured short: the tank task found
+ * 14 KB free, 7 KB the largest block (bench, 2026-09-26). */
+#define SRAM_KEEP (160 * 1024)
 static void *sram_alloc(size_t n) {
+    if (heap_caps_get_free_size(MALLOC_CAP_INTERNAL) < n + SRAM_KEEP) {
+        static bool said;
+        if (!said) { said = true; ESP_LOGI(TAG, "hot buffers past %u B go to PSRAM: %u KB internal kept for the display, audio and the tank task",
+                                           (unsigned)n, (unsigned)(SRAM_KEEP / 1024)); }
+        return NULL;
+    }
     return heap_caps_malloc(n, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
 }
 
